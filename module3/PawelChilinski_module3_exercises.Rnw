@@ -1,0 +1,296 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+
+\usepackage{titlesec}% http://ctan.org/pkg/titlesec
+\titleformat{\section}%
+  [hang]% <shape>
+  {\normalfont\bfseries\Large}% <format>
+  {}% <label>
+  {0pt}% <sep>
+  {}% <before code>
+\renewcommand{\thesection}{}% Remove section references...
+\renewcommand{\thesubsection}{}%... from subsections
+
+\title{Module 3 - Multiple regression model}
+\author{Pawel Chilinski}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+\maketitle
+\subsection{Exercise 1.} Load data trees.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE>>=
+# Color scatterplot matrix, colored and ordered by magnitude of r
+library(gclus)
+trees.r <- abs(cor(trees))
+cpairs(trees, order.single(trees.r), panel.colors = dmat.color(trees.r), gap = .5,
+       main = "Variables Ordered and Colored by Correlation")
+@
+\caption{Data trees scatter plots orders by correlation.}
+\end{center}
+\end{figure}
+\begin{itemize}
+\item Fit least squares lines to both pairs of variables taking Volume as a response variable (use function lm()). Check how you can extract components of the object returned by function lm() such as coefficients, fitted values and residuals (use function names() on the returned object to see a full list of components).
+<<>>=
+vol_girth_lm <- lm(Volume ~ Girth,trees)
+names(vol_girth_lm)
+head(vol_girth_lm$coefficients)
+#check if the formula gives the same results
+X=matrix(c(rep(1,nrow(trees)),trees$Girth),nrow=nrow(trees))
+Y=matrix(trees$Volume,nrow=nrow(trees))
+solve((t(X)%*%X))%*%t(X)%*%Y
+
+head(vol_girth_lm$fitted.values)
+head(vol_girth_lm$residuals)
+
+vol_height_lm <- lm(Volume ~ Height,trees)
+vol_height_lm$coefficients
+head(vol_height_lm$fitted.values)
+head(vol_height_lm$residuals)
+@
+\item View the fitted model using function summary(). Check how you can extract components of the object returned by function summary()
+<<>>=
+vol_girth_lm_sum <- summary(vol_girth_lm)
+vol_girth_lm_sum
+names(vol_girth_lm_sum)
+vol_girth_lm_sum$r.squared
+
+vol_height_lm_sum <- summary(vol_height_lm)
+vol_height_lm_sum
+@
+We see that b0 and b1 have statistically significant values (where model with girth variable has more significant coefficients).
+\item Draw fitted lines on respective scatter plots of data (use functions plot() and abline()).
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,width=14,height=10>>=
+par(mfrow=c(1,2))
+plot(trees$Girth,trees$Volume, xlab="Girth",ylab="Volume",main="Volume ~ Girth")
+abline(vol_girth_lm,col="blue")
+legend(x="topleft",col=c("black","blue"),pch=c(1,NA),legend=c("data","fitted line"),lty=c(0,1))
+
+plot(trees$Height,trees$Volume, xlab="Height",ylab="Volume",main="Volume ~ Height")
+abline(vol_height_lm,col="blue")
+legend(x="topleft",col=c("black","blue"),pch=c(1,NA),legend=c("data","fitted line"),lty=c(0,1))
+par(mfrow=c(1,1))
+@
+\caption{Data and fitted lines for Volume(Girth) and Volume(Height).}
+\end{center}
+\end{figure}
+
+\item Compare values of R2 between the two models.
+<<>>=
+vol_girth_lm_sum$r.squared
+vol_height_lm_sum$r.squared
+@
+So model containing Girth as explanatory variable explains more variance of Volume than model containing Height.
+
+\item Assuming that linear regression model is the true model for the data, can we say that there is a statistically significant relationship between variables Volume and Girth (use 5\% significance level)? Answer the same question in the case of variables Volume and Height.
+<<>>=
+cor.test(trees$Volume,trees$Girth, conf.level = 0.95)
+cor.test(trees$Volume,trees$Height, conf.level = 0.95)
+@
+So with 5\% significance level we reject hypothesis about variables not being related (p\textless 0.05 in both cases). 
+
+\item Give the confidence interval for slope coefficient in the regression model Volume $\sim$ Girth?
+\\
+
+95\% confidence interval:
+<<>>=
+confint(vol_girth_lm)[2,]
+@
+
+\item What is the estimated variance of tree volume in this model?
+<<>>=
+anova_vol_girth_lm <- anova(vol_girth_lm)
+anova_vol_girth_lm
+(anova_vol_girth_lm[1,2] + anova_vol_girth_lm[2,2])/(nrow(trees)-1)
+#which is the same as
+var(trees$Volume)
+@
+\item What is the predicted value of volume in this model if the girth of a tree is equal to 15 inches?
+<<>>=
+#using built-in function
+predict(vol_girth_lm,data.frame(Girth=c(15)))
+#or using formula directly
+vol_girth_lm$coefficients[1]+vol_girth_lm$coefficients[2]*15
+@
+\end{itemize}
+
+\subsection{Exercise 2.} File anscombe quartet.txt contains four pairs of variables.
+<<>>=
+anscombe_quartet <- read.table(file="anscombe_quartet.txt",header=T)
+names(anscombe_quartet)
+@
+\begin{itemize}
+\item Fit least squares lines to all four pairs of variables.
+<<>>=
+anscombe_quartet_models <- lapply(1:4,function(i){lm(as.formula(paste("Y",i,"~","X",i,sep="")),
+                                                     anscombe_quartet)})
+@
+\item Compare fitted values of coefficients b0, b1, and values of R2 and correlations for the four models.
+\\
+
+Coefficients:
+<<>>=
+lapply(1:4,function(i){data.frame(b0=anscombe_quartet_models[[i]]$coefficients[1],
+                                  b1=anscombe_quartet_models[[i]]$coefficients[2],row.names=NULL)})
+@
+R2 of the models:
+<<>>=
+anscombe_quartet_models_summaries <- lapply(anscombe_quartet_models,summary)
+sapply(anscombe_quartet_models_summaries,function(model_summary){model_summary$r.squared})
+@
+Correlations (computed as b1*(sx/sy)):
+<<>>=
+sapply(1:4,function(i){
+  anscombe_quartet_models_summaries[[i]]$coefficients[2,1]*
+    (sd(anscombe_quartet[[paste("X",i,sep="")]])/sd(anscombe_quartet[[paste("Y",i,sep="")]]))
+})
+@
+\item In one screen make four scatter plots of the respective data (use command par(mfrow=c(2,2))). In which case fitting a linear model is reasonable? Are numerical summaries sufficient for assessing a regression model?
+\begin{figure}[H]
+\begin{center}
+<<fig=T>>=
+par(mfrow=c(2,2))
+for(i in 1:4){
+  x_var <- paste("X",i,sep="")
+  y_var <- paste("Y",i,sep="")
+  plot(anscombe_quartet[[x_var]],anscombe_quartet[[y_var]], xlab=x_var,ylab=y_var,
+       main=paste(y_var,"~",x_var))
+  abline(anscombe_quartet_models[[i]],col="blue")
+  legend(x="topleft",col=c("black","blue"),pch=c(1,NA),legend=c("data","fitted line"),lty=c(0,1))
+}
+par(mfrow=c(1,1))
+@
+\caption{Data and fitted models for anscombe quartet}
+\end{center}
+\end{figure}
+To assess if the model is appropriate for the data we can plot the residuals and check if they spread evenly around 0:
+\begin{figure}[H]
+\begin{center}
+<<fig=T>>=
+par(mfrow=c(2,2))
+for(i in 1:4){
+  model <- anscombe_quartet_models[[i]]
+  plot(model$residuals, main=paste("residuals for model",i))
+  abline(a=0,b=0,col="blue")
+}
+par(mfrow=c(1,1))
+@
+\caption{Residuals}
+\end{center}
+\end{figure}
+QQ plots for residuals to assess their normality:
+\begin{figure}[H]
+\begin{center}
+<<fig=T>>=
+par(mfrow=c(2,2))
+for(i in 1:4){
+  model <- anscombe_quartet_models[[i]]
+  qqnorm(model$residuals,main=paste("residuals for model",i))
+}
+par(mfrow=c(1,1))
+@
+\caption{QQ plots of residuals}
+\end{center}
+\end{figure}
+So looking at scatter plots and distribution of residuals we can conclude that only first data set should be explained by linear model because its residuals seem with no relationship whatsoever with explanatory variable (this cannot be said about residuals from other models). The second data set is not linear. The third data set contains one outlier which added to linear data completely changes the fitted model. The forth data set with one outlier which all but one data points show no relationship between variables.
+Looking at numerical summaries we can see that all are almost the same, are not enough to assess the models and even are deceptive when making conclusions about models (so we have to look at scatter plots and other visualization tools to help us make correct decision):
+<<>>=
+anscombe_quartet_models_summaries
+@
+\end{itemize}
+
+\subsection{Exercise 3.} File realest.txt contains data related to houses in Chicago such as: Price (price of house), Bedroom (number of bedrooms), Space (area in squared feet), Room (number of rooms), Lot (width of front lot), Tax (property tax per year), Bathroom (number of bathrooms), Garage (number of parking lots in garage), Condition (0 indicates good condition, 1 - bad condition).
+Fit a linear regression model taking price of house as a response variable and the rest of variables in the data set as explanatory variables.
+<<>>=
+realest <- read.table(file="realest.txt",header=T)
+realest_model <- lm(Price ~ Bedroom + Space + Room + Lot + Tax + Bathroom + Garage + Condition, realest)
+@
+\begin{itemize}
+\item How will the price of house change if number of bedrooms is increased by 1 and values of the rest of variables stay unchanged? Explain apparent incorrect result. Compare this result with the analogous result in a single regression model Price ∼ Bedroom.
+<<>>=
+realest_model
+@
+So we could conclude that increase in number of bedroom by 1 decreases the price by 7.75 which seems to be false. But we cannot interpret this coefficient in this way because now we have interaction with other variables. Additionally when we have linear dependence between explanatory variables then there are infinitely many fitting models (when $X'X$ is close to not invertible matrix). So the coefficients cannot be used to reason about how changes in explanatory variables affects explained variable. Example
+of the linear dependence between explanatory variables:
+\begin{figure}[H]
+\begin{center}
+<<fig=T>>=
+plot(realest$Bedroom,realest$Room,xlab="Bedroom",ylab="Room",main="Room vs Bedroom")
+text(5,11,labels=paste("correlation = ",round(cor(realest$Bedroom,realest$Room),digits=2)),col="blue")
+@
+\caption{Room vs Bedroom linear dependence}
+\end{center}
+\end{figure}
+But looking at the simpler model Price $\sim$ Bedroom we see more plausible prediction i.e. increasing number of bedrooms by 1 increases price by 3.921.
+<<>>=
+realest_price_bedroom_model<-lm(Price ~ Bedroom, realest)
+realest_price_bedroom_model
+@
+\item What price would you predict for a house in a good condition, with 3 bedrooms, 8 rooms, 2 bathrooms, 1 parking lot, 1500 square feet of area, 40 feet of lot width and 1000 dollars of tax amount (use function predict())? Find confidence interval for the predicted: 
+\begin{itemize}
+\item mean value of response (parameter interval="confidence" in function predict()),
+\item value of response (parameter interval="prediction" in function predict()).
+\end{itemize}
+Predicted price:
+<<>>=
+realest_model<-lm(Price ~ Bedroom + Room + Bathroom + Garage + Space + Lot + Tax, realest)
+predict(realest_model,data.frame(Bedroom=3,Room=8,Bathroom=2,Garage=1,Space=1500,Lot=40,Tax=1000))
+@
+Mean value of response and its 0.95 confidence interval:
+<<>>=
+predict(realest_model,data.frame(Bedroom=3,Room=8,Bathroom=2,Garage=1,Space=1500,Lot=40,Tax=1000),
+        interval="confidence")
+@
+Value of predicted response and its 0.95 confidence interval:
+<<>>=
+predict(realest_model,data.frame(Bedroom=3,Room=8,Bathroom=2,Garage=1,Space=1500,Lot=40,Tax=1000),
+        interval="prediction")
+@
+\end{itemize}
+
+\subsection{Exercise 4.} File cheese.txt contains data describing taste of cheese (variable cheese) and other parameters such as:\\
+\\
+Acetic - logarithm of acetic acid content, \\
+Lactic - lactic acid content, \\
+H2S - logarithm of hydrogen sulphide content. \\
+\\
+Consider two linear models:
+\begin{center}
+taste versus Acetic \\
+taste versus Acetic, Lactic, H2S.
+\end{center}
+Perform an F test for testing hypothesis that smaller model is better fitted to the data than the larger one (take significance level as 0.05).\\\\
+Read data and create models:
+<<>>=
+cheese <- read.table("cheese.txt", header=T)
+simple_model <- lm(taste ~ Acetic, cheese)
+complex_model <- lm(taste ~ Acetic + Lactic + H2S, cheese)
+plot(cheese$Acetic,cheese$Lactic)
+cor(cheese$Acetic,cheese$Lactic)
+@
+We see that in more complex model the Acetic and Intercept coefficients are not statistically significant:
+<<>>=
+simple_model_sum <- summary(simple_model)
+simple_model_sum
+complex_model_sum <- summary(complex_model)
+complex_model_sum
+@
+Compare the models:
+<<>>=
+#R^2 is signifacntly different
+anova(simple_model,complex_model,test="F")
+#R^2 of complex model is bigger
+simple_model_sum$r.squared
+complex_model_sum$r.squared
+@
+So the p-value of the test with $H_0$ that $R^2$ of the complex model is the same as $R^2$ of the simple model is very small i.e. much less than 0.05. So we can reject this hypothesis and assume that complex model explains the data better.
+\end{document}

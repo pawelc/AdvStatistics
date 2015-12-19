@@ -1,0 +1,1 @@
+0dbc407544e8717973c7d5c66c4480c5  model.frwd.bic  11

@@ -1,0 +1,42 @@
+\contentsline {section}{\numberline {1}Introduction}{3}{section.1}
+\contentsline {section}{\numberline {2}Data}{3}{section.2}
+\contentsline {subsection}{\numberline {2.1}Validating the data.}{5}{subsection.2.1}
+\contentsline {section}{\numberline {3}Full model}{8}{section.3}
+\contentsline {section}{\numberline {4}Veryfying model assumptions}{8}{section.4}
+\contentsline {subsection}{\numberline {4.1}Quantitative response variable (Corruption.Index)}{8}{subsection.4.1}
+\contentsline {subsection}{\numberline {4.2}p-1 explanatory independent quantitative variables}{8}{subsection.4.2}
+\contentsline {subsection}{\numberline {4.3}Values of the predictors are deterministic}{8}{subsection.4.3}
+\contentsline {subsection}{\numberline {4.4}Corruption.Index are values of random variables satyfing linear equations}{10}{subsection.4.4}
+\contentsline {subsection}{\numberline {4.5}Normality assumptions of errors}{10}{subsection.4.5}
+\contentsline {subsection}{\numberline {4.6}Additive impact of each predictor variable on explained variable.}{16}{subsection.4.6}
+\contentsline {subsection}{\numberline {4.7}Collinearity}{16}{subsection.4.7}
+\contentsline {subsection}{\numberline {4.8}$p \leq n$}{17}{subsection.4.8}
+\contentsline {subsection}{\numberline {4.9}is specification of the structural equation of the model correct?}{18}{subsection.4.9}
+\contentsline {subsection}{\numberline {4.10}Dependence of errors}{19}{subsection.4.10}
+\contentsline {subsection}{\numberline {4.11}Occurance of outliers or influential observations}{19}{subsection.4.11}
+\contentsline {subsection}{\numberline {4.12}All significant predictors are included}{20}{subsection.4.12}
+\contentsline {section}{\numberline {5}Selection of variables}{20}{section.5}
+\contentsline {subsection}{\numberline {5.1}Backward elimination procedure based on t-tests}{20}{subsection.5.1}
+\contentsline {subsection}{\numberline {5.2}Forward selection procedure based on t-tests}{23}{subsection.5.2}
+\contentsline {subsection}{\numberline {5.3}Backward based on AIC criterion}{25}{subsection.5.3}
+\contentsline {subsection}{\numberline {5.4}Forward based on AIC criterion}{26}{subsection.5.4}
+\contentsline {subsection}{\numberline {5.5}Backward based on BIC criterion}{29}{subsection.5.5}
+\contentsline {subsection}{\numberline {5.6}Forward based on BIC criterion}{31}{subsection.5.6}
+\contentsline {subsection}{\numberline {5.7}Based on Adjusted R2 criterion}{34}{subsection.5.7}
+\contentsline {subsection}{\numberline {5.8}Based on $C_p$ criterion}{38}{subsection.5.8}
+\contentsline {section}{\numberline {6}Shrinkage methods}{43}{section.6}
+\contentsline {subsection}{\numberline {6.1}Ridge regression}{43}{subsection.6.1}
+\contentsline {subsection}{\numberline {6.2}LASSO regression}{46}{subsection.6.2}
+\contentsline {subsection}{\numberline {6.3}Robust regression: M-estimators and Least Trimmed Squares}{48}{subsection.6.3}
+\contentsline {subsection}{\numberline {6.4}PCA}{48}{subsection.6.4}
+\contentsline {subsection}{\numberline {6.5}PCR}{51}{subsection.6.5}
+\contentsline {subsection}{\numberline {6.6}PLSR}{53}{subsection.6.6}
+\contentsline {section}{\numberline {7}Nonlinear regression}{56}{section.7}
+\contentsline {subsection}{\numberline {7.1}Regression tree}{56}{subsection.7.1}
+\contentsline {subsection}{\numberline {7.2}Moving average estimator of regression function}{58}{subsection.7.2}
+\contentsline {subsection}{\numberline {7.3}Local linear estimator of regression function}{59}{subsection.7.3}
+\contentsline {subsection}{\numberline {7.4}Additive model}{60}{subsection.7.4}
+\contentsline {section}{\numberline {8}Prediction}{61}{section.8}
+\contentsline {section}{\numberline {9}Crossvalidation and final model selection}{63}{section.9}
+\contentsline {section}{\numberline {10}Summary}{65}{section.10}
+\contentsline {section}{\numberline {11}Methods that failed}{66}{section.11}

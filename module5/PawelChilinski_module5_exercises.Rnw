@@ -1,0 +1,856 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+
+\usepackage{titlesec}% http://ctan.org/pkg/titlesec
+\titleformat{\section}%
+  [hang]% <shape>
+  {\normalfont\bfseries\Large}% <format>
+  {}% <label>
+  {0pt}% <sep>
+  {}% <before code>
+\renewcommand{\thesection}{}% Remove section references...
+\renewcommand{\thesubsection}{}%... from subsections
+
+\title{Module 5 - Variable selection and regularization}
+\author{Pawel Chilinski}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+\maketitle
+\subsection{Exercise 1.} File cigconsumption.txt contains data related to
+cigarettes sale per one person in 51 states of USA (variable Sales) and other variables such as:
+\\
+Age - median of age of state population\\
+HS - percentage of population having at least secondary education\\
+Income - mean income per one person in a given state\\
+Female - percentage of women in state population\\
+State - name of state\\
+Black - percentage of black people in state population\\
+Price - weighted mean price of packet of cigarettes\\
+
+<<>>=
+cig.data <- read.table(file="cigconsumption.txt",header=T)
+library(psych)
+@
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+cig.data.scaled<-scale(cig.data[,2:8])
+stripchart(data.frame(cig.data.scaled),vertical=T,method="jitter")
+for(row in which(abs(cig.data.scaled)>3)){
+	state<-row %% nrow(cig.data)
+	if(state==0){
+		state=nrow(cig.data)
+	}
+	text(row%/%nrow(cig.data)+1.3,cig.data.scaled[row],cig.data$State[state])
+}
+@
+\caption{Scaled cig data to check its distribution and find potential outliers.}
+\end{center}
+\end{figure}
+The data seems to have several observations that have unusual values (DC,
+AK, NH).
+\begin{itemize}
+\item Fit a linear regression model taking Sales as a response variable and the
+rest of variables in the data set as explanatory variables (excluding State).
+<<>>=
+cig.lm<-lm(Sales~Age+HS+Income+Black+Female+Price,cig.data)
+@
+\item Check diagnostic plots of the model.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(cig.lm, which=1:4,labels.id=cig.data$State,id.n=8)
+par(op)
+@
+\caption{Diagnostic plots for cigconsumption model.}
+\end{center}
+\end{figure}
+
+The Residuals vs Fitted plot shows that we have several values which seem
+extreme and should be further investigated (points labelled on the graph). 
+The same conclusion can be made after looking at Normal Q-Q plot where we see
+most of the data is located approximately along ideal line but several points
+sticking out. Cooks distance plot shows influential observations (8 biggest).
+\item Find outliers in the data. Check if these observations are influential. If so exclude them from further
+analysis.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=6>>=
+par(mar=c(2,2,2,2))
+library(MASS)
+cig.lm.studres <- studres(cig.lm)
+plot(fitted(cig.lm),cig.lm.studres,ylab="studentized residual",xlab="fitted")
+cig.possible.outliers<-which(abs(cig.lm.studres)>2)
+points(fitted(cig.lm)[cig.possible.outliers],cig.lm.studres[cig.possible.outliers],col="red",cex=2)
+text(fitted(cig.lm)[cig.possible.outliers]+5,cig.lm.studres[cig.possible.outliers],
+		labels=cig.data$State[cig.possible.outliers])
+@
+\caption{Finding outliers as studentized residual values greater then 2.}
+\end{center}
+\end{figure}
+We can see that NH, NV and HI are outliers in the sense that they do not follow
+fitted linear model.
+
+Find potential influential observations using leverages:
+<<>>=
+h<-lm.influence(cig.lm)$hat
+names(h)<-cig.data$State
+rev(sort(h))
+#observation potentially influential if hii>=2p/n
+2*7/51
+@
+So based on leverages the DC, AK, UT, FL are potentially influential.They are
+among observations selected by Cook's distance but not FL. 
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=7,width=7>>=
+library(car)
+avPlots(cig.lm,labels=cig.data$State,id.n=3)
+@
+\caption{Partial regression plots}
+\end{center}
+\end{figure}
+Based on partial regression plots checking if following states contain
+influential data: NH, NV, FL, UT, HI, KY, DC, AK, OR by creating models without
+given state and comparing how the model changed compared to the original model.
+The matrix coef.diffs contains in the first column full model's coefficients and
+in the subsequent columns the differences between model's coefficients without
+given observation and full model's coefficients. 
+<<>>= #without NH
+coef.diffs<-matrix(nrow = 7, ncol = 11) 
+coef.diffs[,1]<-summary(cig.lm)$coef[,1]
+outliers<-c("NH", "NV", "FL", "UT", "HI", "KY", "DC", "AK", "OR","NC")
+colnames(coef.diffs)<-c("fullmodel",outliers)
+for(i in 1:length(outliers)){
+	coef.diffs[,i+1]<-summary(lm(Sales~Age+HS+Income+Black+Female+Price,
+		cig.data[cig.data$State!=outliers[i],]))$coef[,1] - summary(cig.lm)$coef[,1]
+}
+coef.diffs
+@
+Based on coef.diffs table we can conclude that NH, NV, UT, HI, KY, DC, AK, NC
+are influential observations (which is the same result as from the Cooks'
+distances graph) and we remove them from the model (i).
+As we can see not all influential observation were noticed on the studentized residual plot.
+<<>>= 
+cig.data.wo.influentials<-cig.data[!cig.data$State %in% 
+				c("NH", "NV", "UT", "HI", "KY", "DC", "AK", "NC"),]
+cig.lm.wo.influentials<-lm(Sales~Age+HS+Income+Black+Female+Price,cig.data.wo.influentials)
+@
+\item How did removing outliers influence values of $R^2$ and residual standard
+error ($\hat\sigma$)?
+
+As we can see after removing influential observations the $R^2$ increased by
+0.21 (original model's value 0.32) and $\hat\sigma$ decreased by 17.12 (original
+model's value 28.17).
+<<>>=
+cig.lm.sum<-summary(cig.lm)
+cig.lm.wo.influentials.sum<-summary(cig.lm.wo.influentials)
+cig.lm.wo.influentials.sum$sigma-cig.lm.sum$sigma
+cig.lm.wo.influentials.sum$r.squared-cig.lm.sum$r.squared
+@
+\item In a refitted model: do we reject hypothesis that all variables are
+insignificant?
+Yes we can reject this hypothesis because Income and Price variables are
+significant. 
+<<>>=
+summary(cig.lm.wo.influentials)
+@
+\item Which predictors are insignificant for explaining Sales if all the other
+predictors are incorporated in the model?
+
+We can see looking at p-values that predictors Age, HS, Black, Female are insignificant for explaining Sales if all the other
+predictors are incorporated in the model.
+
+\item Using F test for comparing two nested models decide whether all of these variables can be removed from the model (use function anova()).
+
+From F test we can see that model with all predictors explains statistically
+significant more of the variability in the data than constant model (p-value <
+0.05):
+<<>>=
+cig.contstant.lm.wo.influentials<-lm(Sales~1,cig.data.wo.influentials)
+anova(cig.lm.wo.influentials,cig.contstant.lm.wo.influentials)
+@
+\item Choose the best subset of predictors using stepwise procedures:
+\begin{itemize}
+  \item based o t-tests (backward elimination)
+
+Assuming p-to-remove as 0.05.
+First removing Age because it has the biggest p-value > 0.05 (0.84)  
+<<>>=
+wo.age.sum<-summary(update(cig.lm.wo.influentials,.~. - Age))
+wo.age.sum$coef[,4, drop=F]
+wo.age.sum$adj.r.squared
+@
+Adjusted R-squared increased.
+Next removing HS as it has the biggest p-value > 0.05 (0.6)
+<<>>=
+wo.hs.sum<-summary(update(cig.lm.wo.influentials,.~. - Age-HS))
+wo.hs.sum$coef[,4, drop=F]
+wo.hs.sum$adj.r.squared
+@
+Adjusted R-squared increased.
+Next removing Black as it has the biggest p-value > 0.05 (0.42)
+<<>>=
+wo.black.sum<-summary(update(cig.lm.wo.influentials,.~. - Age-HS-Black))
+wo.black.sum$coef[,4, drop=F]
+wo.black.sum$adj.r.squared
+@
+Adjusted R-squared increased and all predictors are significant. 
+But checking what happens when we remove one more predictor which is on the
+limit of significance i.e. Female (0.049)
+<<>>=
+wo.female.sum<-summary(update(cig.lm.wo.influentials,.~. - Age-HS-Black-Female))
+wo.female.sum$coef[,4, drop=F]
+wo.female.sum$adj.r.squared
+@
+Now Adjusted R-Squared decreased.
+The model achieved using backward elimination is 
+Sales $\sim$ Income+Female+Price with Adjusted R-Squared 0.49.
+\item based on AIC criterion (use function step())
+<<>>=
+step(lm(Sales~1,cig.data.wo.influentials), direction = c("forward"), k=2, 
+		scope=list(upper=.~.+Age + HS + Income + Black + Female + Price))	
+@
+So we can see the forward stepwise procedure based on the AIC criterion selects
+the same predictors as backward procedure based on t-tests i.e. Income, Price,
+Female.
+Running step function for backward and both directions gives the same results.
+\item based on BIC criterion (use function step())
+<<>>=
+step(lm(Sales~1,cig.data.wo.influentials), direction = c("forward"), 
+		k=log(length(cig.data.wo.influentials)), 
+		scope=list(upper=.~.+Age + HS + Income + Black + Female + Price))
+@
+So we can see the forward stepwise procedure based on the BIC criterion selects
+the same predictors as backward procedure based on t-tests and step procedure
+based on AIC criterion i.e. Income, Price, Female.
+Running step function for backward and both directions gives the same results.
+\item based on Adjusted $R^2$ criterion (use function regsubsets() from library
+leaps and then summary() of a returned object which contains components such as adjr2, bic, cp).
+<<>>=
+library(leaps)	
+subsets<-regsubsets(Sales~Age + HS + Income + Black + Female + Price,cig.data.wo.influentials)
+(regsubsets.sum<-summary(subsets))
+regsubsets.sum$adjr2
+regsubsets.sum$bic
+regsubsets.sum$cp
+@
+We can also visualise selection of the best model based on different criterion:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=6,width=7>>=
+par(mar=c(1,1,1,1))
+par(mfrow=c(2,2))
+plot(subsets, scale="bic")
+plot(subsets, scale="r2")
+plot(subsets, scale="adjr2")
+plot (subsets, scale="Cp")
+@
+\caption{Finding best model using exhaustive search and different criteria.}
+\end{center}
+\end{figure}
+As we can see again the best model is Sales $\sim$ Income+Female+Price (the
+only exception is $R^2$ which doesn't take into consideration number of
+predictors in the model and always prefers maximal model).
+
+Checking $C_p$ with respect to number of parameters:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=2,width=5>>=
+par(mar=c(2,2,1,1))
+plot(2:7,regsubsets.sum$cp,xlab="No. of Parameters", ylab="Cp Statistic")
+abline(0,1)
+@
+\caption{$C_p$ against number of model parameters.}
+\end{center}
+\end{figure}
+We can see that point for 3 predictors (i.e. 4 parameter model) lies below line
+p so the model fits data well.
+\end{itemize}
+\item Compare the chosen model with initial one using F test.
+<<>>=
+anova(lm(Sales~Income+Female+Price,cig.data.wo.influentials),cig.lm.wo.influentials)
+@
+F tests shows that there isn't significant difference between original model and
+sub-model selected (p-value 0.82). 
+\item How did the standard errors of estimated coefficients (bi) change after
+removing insignificant predictors?
+
+Showing how much in percentage terms the standard errors of estimated
+coefficients (bi) changed after removing insignificant predictors
+(standard error decreased):
+<<>>=
+std.err.selected.model<-
+		summary(lm(Sales~Income+Female+Price,cig.data.wo.influentials))$coef[,2,drop=F]
+std.err.full.model<-
+		cig.lm.wo.influentials.sum$coef[c("(Intercept)","Income","Female","Price"),2,drop=F]
+100*(std.err.selected.model-std.err.full.model)/std.err.full.model
+@
+\end{itemize}
+\subsection{Exercise 2.} For the data uscrime.txt
+<<>>=
+#Loading the data and checking if it looks valid
+crime.data <- read.table(file="uscrime.txt",header=T)
+@
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+crime.data.scaled<-scale(crime.data)
+stripchart(data.frame(crime.data.scaled),vertical=T,method="jitter")
+for(row in which(abs(crime.data.scaled)>3)){
+	obs<-row %% nrow(crime.data)
+	if(obs==0){
+		obs=nrow(crime.data)
+	}
+	text(row%/%nrow(crime.data)+1.3,crime.data.scaled[row],obs)
+}
+@
+\caption{Scaled crime data to check its distribution and find potential outliers.}
+\end{center}
+\end{figure}
+The data seems to have several observations that have unusual values
+(like observation 29).
+\begin{itemize}
+\item Fit a linear regression model taking crime rate as a response variable and all the other variables in the
+set as predictors.
+<<>>=
+crime.lm<-lm(R~.,crime.data)
+(crime.lm.sum<-summary(crime.lm))
+@
+\item Remove all the variables which are redundant in the model. Use methods
+based on: t-tests, AIC, BIC, Adjusted R2, Mallows Cp criterion (use function regsubsets()). 
+Before selecting the best subset of predictors remove outliers from the data.
+\begin{itemize}
+\item Remove outliers
+
+Checking diagnostics plots for the model:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(crime.lm, which=1:4)
+@
+\caption{Diagnostic plots for uscrime model.}
+\end{center}
+\end{figure}
+From the diagnostics plots we can suspect several outliers (11,19). The Q-Q plot
+without them looks reasonably normal. There are no significant Cook's values
+taking into consideration standard criteria (like $D_i>1$ or $D_i>4/n$ or $D_i>F_{p,n-p,1-\alpha}$)
+
+Checking studentized residuals:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=6>>=
+par(mar=c(2,2,2,2))
+crime.lm.studres <- studres(crime.lm)
+plot(fitted(crime.lm),crime.lm.studres,ylab="studentized residual",xlab="fitted")
+crime.possible.outliers<-which(abs(crime.lm.studres)>2)
+points(fitted(crime.lm)[crime.possible.outliers],crime.lm.studres[crime.possible.outliers],col="red",cex=2)
+text(fitted(crime.lm)[crime.possible.outliers]+5,crime.lm.studres[crime.possible.outliers],
+		labels=crime.possible.outliers)
+@
+\caption{Finding outliers as studentized residual values greater then 2.}
+\end{center}
+\end{figure}
+Here we can see two outliers (11,19).
+
+Find potential influential observations using leverages:
+<<>>=
+h<-lm.influence(crime.lm)$hat
+rev(sort(h))
+#observation potentially influential if hii>=2p/n
+2*15/47
+@
+So based on leverages only 37th observation is potentially influential.But it
+is not selected by Cook's distance so not selecting it as influential.
+
+Checking partial regression plots:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=9,width=8>>=
+avPlots(crime.lm,id.n=3,layout = c(4,4))
+@
+\caption{Partial regression plots}
+\end{center}
+\end{figure}
+Partial regression also shows that 11 and 19 should be considered as outliers
+and possible influential observations.
+
+It looks that observations that should be removed are 11th and 19th. There
+aren't any significant influential observations.
+<<>>=
+crime.data.wo.outliers<-crime.data[c(-11,-19),]
+crime.lm.wo.outliers<-lm(R~.,crime.data.wo.outliers)
+@
+As we can see after removing outliers the $R^2$ increased by
+0.06 (original model's value 0.77) and $\hat\sigma$ decreased by 3.27 (original
+model's value 21.94):
+<<>>=
+crime.lm.wo.outliers.sum<-summary(crime.lm.wo.outliers)
+crime.lm.wo.outliers.sum$sigma-crime.lm.sum$sigma
+crime.lm.wo.outliers.sum$r.squared-crime.lm.sum$r.squared
+@
+
+\item Remove all the variables which are redundant in the model.
+
+\begin{itemize}
+  \item based o t-tests (backward elimination)
+
+Assuming p-to-remove as 0.05.
+
+First removing LF because it has the biggest p-value > 0.05 (0.97)  
+<<>>=
+wo.lf.sum<-summary(update(crime.lm.wo.outliers,.~.-LF))
+pvals<-wo.lf.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.lf.sum$adj.r.squared
+@
+Adjusted R-squared increased.
+Next removing S as it has the biggest p-value > 0.05 (0.98)
+<<>>=
+wo.s.sum<-summary(update(crime.lm.wo.outliers,.~.-LF-S))
+pvals<-wo.s.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.s.sum$adj.r.squared
+@
+Adjusted R-squared increased.
+Next removing M as it has the biggest p-value > 0.05 (0.8)
+<<>>=
+wo.m.sum<-summary(update(crime.lm.wo.outliers,.~.-LF-S-M))
+pvals<-wo.m.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.m.sum$adj.r.squared
+@
+Adjusted R-squared increased.
+Next removing Ex1 as it has the biggest p-value > 0.05 (0.76)
+<<>>=
+wo.ex1.sum<-summary(update(crime.lm.wo.outliers,.~.-LF-S-M-Ex1))
+pvals<-wo.ex1.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.ex1.sum$adj.r.squared
+@
+Adjusted R-squared increased.
+Next removing W as it has the biggest p-value > 0.05 (0.74)
+<<>>=
+wo.w.sum<-summary(update(crime.lm.wo.outliers,.~.-LF-S-M-Ex1-W))
+pvals<-wo.w.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.w.sum$adj.r.squared
+@
+Adjusted R-squared increased.
+Next removing NW as it has the biggest p-value > 0.05 (0.25)
+<<>>=
+wo.nw.sum<-summary(update(crime.lm.wo.outliers,.~.-LF-S-M-Ex1-W-NW))
+pvals<-wo.nw.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.nw.sum$adj.r.squared
+@
+Adjusted R-squared unfortunately decreased but still there are insignificant
+predictors.
+Next removing N as it has the biggest p-value > 0.05 (0.18)
+<<>>=
+wo.n.sum<-summary(update(crime.lm.wo.outliers,.~.-LF-S-M-Ex1-W-NW-N))
+pvals<-wo.n.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.n.sum$adj.r.squared
+@
+Adjusted R-squared unfortunately decreased but still there are insignificant
+predictors.
+Next removing U1 as it has the biggest p-value > 0.05 (0.17)
+<<>>=
+wo.u1.sum<-summary(update(crime.lm.wo.outliers,.~.-LF-S-M-Ex1-W-NW-N-U1))
+pvals<-wo.u1.sum$coef[,4, drop=F]
+pvals[sort(pvals,index.return=T,decreasing=T)$ix,,drop=F]
+wo.u1.sum$adj.r.squared
+@
+Now all the predictors are significant so we are done with shrinking the model: 
+R $\sim$ Age+Ed+Ex0+U2+X
+\item based on AIC criterion (use function step())
+<<>>=
+step(lm(R~1,crime.data.wo.outliers), direction = c("forward"), k=2, 
+		scope=list(upper=.~.+Age+S+Ed+Ex0+Ex1+M+N+NW+U1+U2+W+X+LF))		
+@
+So we can see the forward stepwise procedure based on the AIC criterion
+doesn't remove predictors which removal causes to deteriorate criterion
+measuring the quality of the model (the method based on t-statistics removed
+some predictors even it meant that adjusted $R^2$ went down) and produced
+optimal model: R $\sim$ Ex0 + Age + X + Ed + U2 + U1 + N.
+Running step function for backward and both directions gives the same
+results.
+\item based on BIC criterion (use function step())
+<<>>=
+step(lm(R~1,crime.data.wo.outliers), direction = c("forward"), 
+		k=log(length(crime.data.wo.outliers)), 
+		scope=list(upper=.~.+Age+S+Ed+Ex0+Ex1+M+N+NW+U1+U2+W+X+LF))
+@
+So we can see the forward stepwise procedure based on the BIC criterion selects
+the same predictors as t-tests i.e. R $\sim$ Ex0 + Age + X + Ed + U2.
+Running step function for backward and both directions gives the same results.
+\item based on Mellows $C_p$ criterion
+
+Here we can see the best model for number of predictors included in the
+model: 
+<<>>=
+subsets<-regsubsets(R~Age+S+Ed+Ex0+Ex1+M+N+NW+U1+U2+W+X+LF,crime.data.wo.outliers,nvmax=13)
+(regsubsets.sum<-summary(subsets))
+regsubsets.sum$cp
+@
+We can also visualise selection of the best model (with 5 predictors):
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=6,width=7>>=
+par(mar=c(1,1,1,1))
+plot (subsets, scale="Cp")
+@
+\caption{Finding best model using exhaustive search and $C_p$ criterion.}
+\end{center}
+\end{figure}
+The Mellows $C_p$ criterion used in regsubsets selected the same model as BIC
+criterion using by the step function i.e. R $\sim$ Ex0 + Age + X + Ed + U2.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=2,width=5>>=
+par(mar=c(2,2,1,1))
+plot(2:14,regsubsets.sum$cp,xlab="No. of Parameters", ylab="Cp Statistic")
+abline(0,1)
+@
+\caption{$C_p$ against number of model parameters.}
+\end{center}
+\end{figure}
+We can see that point for 5 predictors (i.e. 6 parameter model) lies below line
+p so the model fits data well.
+\end{itemize}
+\end{itemize}  
+\end{itemize}
+\subsection{Exercise 3.} Read in data longley from library MASS and fit a linear regression model taking variable 
+Employed as response variable and the rest of variables as predictors.
+<<>>=
+data(longley)
+describe(longley)
+longley.lm<-lm(Employed~.,longley)
+@
+\begin{itemize}
+\item Check the data set for collinearity of predictors by making scatterplots
+for every pair of predictors and calculating variance inflation factors for every predictor (function vif() in library faraway).
+<<>>=
+vif(longley.lm)	
+@
+We have VIF values larger than 10 so we have colinear variables in the model.
+
+Checking pairwise colinearity:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+pairs(longley[1:(length(longley)-1)])	
+@
+\caption{scatterplots for every pair of variables.}
+\end{center}
+\end{figure}
+We can spot following coolinera pairs: (GNP.deflator, GNP),
+(GNP.deflator, Population), (GNP.deflator, Year), (GNP, Population), (GNP,
+Year), (Population, Year)
+\item Fit a model to the data using ridge regression method (function
+lm.ridge()). Take the range of $\lambda$ as an interval [0, 0.2] with step 0.001.
+<<>>=
+longley.lm.ridge<-lm.ridge(Employed~.,longley,lambda = seq(from=0,to=0.2,by=0.001))
+@
+\item Plot fitted values of coefficients (bi) as a function of parameter $\lambda$ (use
+function plot(fitted model)).
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+plot(longley.lm.ridge,xlab="lambda",ylab="coef")
+legend("topright", names(longley)[-7], col = 1:6, lty = 1:6)
+@
+\caption{fitted values of coefficients (bi) as a function of parameter $\lambda$}
+\end{center}
+\end{figure}
+\item Choose the best value of penalty parameter $\lambda$ using crossvalidation (use
+function select(fitted model))
+<<>>=
+select(longley.lm.ridge)	
+@
+The smallest GCV is achieved at $\lambda=$0.003. 
+
+The impact of lambda on GCV can be visualized:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=2,width=5>>=
+par(mar=c(4,4,0,0))
+plot(longley.lm.ridge$lambda,longley.lm.ridge$GCV,xlab="lambda",ylab="GCV",pch=".",type="p",cex=3)
+@
+\caption{GCV with respect to lmbda}
+\end{center}
+\end{figure}
+\item Compare the fitted coefficient for variable GNP in the resulting model
+with the one fitted by regular least squares method.
+<<>>=
+coef(longley.lm.ridge)["0.003","GNP"]
+lm(Employed~.,longley)$coef["GNP"]
+@
+The GNP coefcient from the ridge regression is smaller (in absolute value) from
+the LS regression GNP coeficient. It is the outcome of the penelty term added to
+the minimized function.
+\end{itemize}
+
+\subsection{Exercise 4.} File prostate.txt contains data on prostate cancer for
+97 men. We are interested in modelling the relationship between lpsa (logarithm of prostate specific antigen) with all the other variables in the data set (except train). 
+Use LASSO method as a way to select the best subset of predictors in this model.
+<<>>=
+prostate.data <- read.table(file="prostate.data",header=T)
+@
+\begin{itemize}
+\item Use function lars() (library lars) which computes a sequence of all
+coefficients for different values of penalty parameter $\lambda$. This returns an object of a class lars.
+<<>>=
+library(lars)
+x<-as.matrix(
+		prostate.data[,c("lcavol","lweight","age","lbph","svi","lcp","gleason","pgg45")])
+y<-prostate.data$lpsa
+prostate.lars<-lars(x,y,type="lasso")
+@
+\item Apply the following functions on the resulting object: print(), plot(),
+coef(), summary()
+<<>>=
+print(prostate.lars)	
+@
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=5>>=
+plot(prostate.lars)
+legend("topleft", names(prostate.data)[c(-9,-10)], col=1:6,lty=1:5,cex=.8)
+@
+\caption{Visualization of the coefficients paths for LASSO}
+\end{center}
+\end{figure}
+<<>>=
+coef(prostate.lars)	
+summary(prostate.lars)
+@
+We can see as the L1 regularizaion constraint is loosened up then the model
+fits the data better and the RSS decreases and the coefficients increase.
+
+\item Choose the best subset of predictors in LASSO regresssion on the basis of
+Mallows Cp criterion (use functions: plot(lasso object,breaks=FALSE,plottype="Cp"), 
+lasso\_object\$Cp where lasso\_object is an object returned by function
+lars()).
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=5>>=
+plot(prostate.lars,breaks=FALSE,plottype="Cp")
+@
+\caption{Visualization of Cp for LASSO}
+\end{center}
+\end{figure}
+So to select the best coefficient based on $C_p$ criterium we select the set
+with the smallest $C_p$:
+<<>>=
+(coef.best<-as.numeric(which.min(prostate.lars$Cp)))
+@
+\item What are the values of fitted coefficients (bi) in LASSO regression for
+the chosen model? In order to access the sequence of fitted coefficients use
+lasso\_object\$beta[number] where number is a number of a chosen step.
+<<>>=
+prostate.lars$beta[coef.best,]	
+@
+\item Choose the best subset of predictors in LASSO regresssion on the basis of
+crossvalidation. Use function cv.lars().
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=5>>=
+prostate.cv.lars <-cv.lars(x,y,K=10,type="lasso")
+@
+\caption{Visualisation of CV MSE}
+\end{center}
+\end{figure}
+Getting coefficient for the minimum MSE:
+<<>>=
+frac<-prostate.cv.lars$index[prostate.cv.lars$cv==min(prostate.cv.lars$cv)]	
+predict.lars(prostate.lars, type="coefficients", mode="fraction", s=frac)$coef
+@
+\end{itemize}
+
+\subsection{Exercise 5.} File cities.txt contains values of the following
+attributes for 46 citites:\\
+Work - weighted average value of number of work hours,\\
+Price - cost of living index,\\
+Salary - hour salary index.\\
+<<>>=
+cities.data <- read.table(file="cities.txt",header=T)
+describe(cities.data)
+@
+\begin{itemize}
+\item Transform the variables to have mean equal to 0 and std. deviation equal
+to 1 (use function scale()).
+<<>>=
+cities.data.st<-scale(cities.data)	
+describe(cities.data.st)
+@
+\item Make a scatterplot of variables Work and Price. Find a direction in which the variabiliy of data is the largest (first principal direction). 
+Add the first and second principal directions to the plot. Tip: use function
+princomp() for the two first columns of the standardized data. Access the directions in which the variabiliy of data is the largest by using component 
+\$loadings of the returned object.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=5>>=
+work.price<-cities.data.st[,c("Work","Price")]
+plot(work.price)
+work.price.pc<-princomp(work.price)
+(work.price.pc.first<-work.price.pc$loadings[,1])
+(work.price.pc.second<-work.price.pc$loadings[,2])
+abline(0,work.price.pc.first[2]/work.price.pc.first[1],col="red")
+abline(0,work.price.pc.second[2]/work.price.pc.second[1],col="green")
+legend("topright", c("first principal direction","second principal direction"), col = c("red","green"), lty = c(1,1))
+@
+\caption{Price $\sim$ Work scatter plot}
+\end{center}
+\end{figure}
+\item Perform principal components analysis for all three variables (use
+function princomp() and summary() and plot() of the returned object).
+<<>>=
+cities.data.st.pc<-princomp(cities.data.st)
+(cities.data.st.pc.sum <- summary(cities.data.st.pc))
+@
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=5>>=
+plot(cities.data.st.pc)
+@
+\caption{Principal components' variance of cities data}
+\end{center}
+\end{figure}
+\item What percent of data variability is contained in each component? Can we
+reduce the number of dimensions for this data?
+<<>>=
+cities.data.st.pc$sdev^2/sum(cities.data.st.pc$sdev^2)
+@
+Because the first and second component constitute together more than 80\% of
+data variability we can reduce the number of dimensions to 2.
+\item Which city has the largest value of first principal component? How can we
+interpret it?
+Manila has the largest value of the first principal component.
+<<>>=
+which.max(cities.data.st.pc$scores[,1])	
+@
+The first loading and values for the Manila in the original coordnates are:
+<<>>=
+cities.data.st.pc$loadings[,1]
+cities.data.st["Manila",]
+@
+Because Manila has bigger work index then average city and smaller price and
+sallary, it is favoured by the first loading which has positive weight for work
+and negative for price and salary. So Manila is the city were people work more
+and enjoy smaller prices but earn less that average country in the data set.
+\end{itemize}
+\subsection{Exercise 6.} Data yarn in library pls are related to PET test
+(Positron Emission Tomography). Data contains 28 observations and consists of
+three parts:\\ 
+NIR - experiment matrix containing information of 268 wavelengths,\\
+density - response variable,\\
+train - logical vector, TRUE for training set observations, FALSE for test set
+observations.\\
+<<>>=
+library(pls)
+data(yarn)
+@
+\begin{itemize}
+\item Use principal components regression (PCR) method to fit a model describing
+dependence between response variable density and variables contained in matrix NIR (function pcr() in library pls). Use only training observations.
+
+Fitting the model and checking what is the RMSE for the model predicting
+training data and test data: 
+<<>>=
+yarn.pcr <- pcr(density ~ NIR, data = yarn, subset=train)
+summary(yarn.pcr)
+#defining root mean square error 
+rmse<-function(x,y) sqrt(mean((x-y)^2))
+#rmse of the train data
+rmse(yarn.pcr$fitted.values[,1,17],yarn$density[yarn$train])
+#rmse of the test data
+rmse(predict(yarn.pcr,yarn$NIR[!yarn$train,],ncomp=c(17))[,1,1],yarn$density[!yarn$train])
+@
+As we can see the RMSE for the test data is bigger than for the train data as
+expected. I used 17 componet model becacause of the analysis performed in the
+next section.
+\item Make a selection of principal components that should be included in the
+model. Use method of crossvalidation (option validation="CV" in function pcr(), also use plot(fitted.model,plottype="validation"))
+
+<<>>=
+yarn.pcr.cv.val <- pcr(density ~ NIR, data = yarn, validation="CV")
+summary(yarn.pcr.cv.val)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=5>>=
+plot(yarn.pcr.cv.val,plottype="validation")
+@
+\caption{RMSEP $\sim$ number of componets}
+\end{center}
+\end{figure}
+We can see that RMSEP(root mean squared error of prediction) for more then 16
+components levels off so we can choose first 17 components as new dimensions for
+the model.
+
+\item Use partial least squares regression (PLSR) method to fit a model
+describing dependence between response variable density and variables contained in matrix NIR (function plsr() in library pls). Use only training observations.
+<<>>=
+yarn.plsr <- plsr(density ~ NIR, data = yarn, subset=train)	
+@
+\item Make a selection of PLSR components that should be included in the model.
+Use method of crossvalidation (option validation = "CV" in function plsr()).
+
+<<>>=
+yarn.plsr.cv.val <- plsr(density ~ NIR, data = yarn, validation="CV")
+summary(yarn.plsr.cv.val)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=5>>=
+plot(yarn.plsr.cv.val,plottype="validation")
+@
+\caption{RMSEP $\sim$ number of componets}
+\end{center}
+\end{figure}
+We can see that RMSEP(root mean squared error of prediction) for more then 11
+components levels off so we can choose first 12 components as new dimensions for
+the model.
+\item Interpret two first PLSR components.
+We can visualize for first two components how they apply to orginal predictors.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=6,width=5>>=
+matplot(1:length(yarn.plsr$loadings[,1]),yarn.plsr$loadings[,1:2],type="l",xlab="NIR",ylab="loading value")
+abline(h=0,col="blue",lwd=0.5)
+legend("topright", c("Comp 1","Comp 2"), col = 1:2, lty = 1:2)
+
+@
+\caption{two first PLSR principal components as function of orginal predictors}
+\end{center}
+\end{figure}
+So we can see that first component negates short wavelenghths and includes
+middle length waves. The second component carries signal from short wavelengths
+and also includes middle length waves.
+\item Make a prediction for test observations using both fitted models (use
+function predict()).
+
+Prediction using pcr model:
+<<>>=
+predict(yarn.pcr, comps = 1:17, newdata = yarn[!yarn$train,])
+@
+Prediction using plsr model:
+<<>>=
+predict(yarn.plsr, comps = 1:12, newdata = yarn[!yarn$train,])	
+@
+
+\end{itemize}
+\end{document}

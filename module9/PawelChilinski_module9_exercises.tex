@@ -1,0 +1,238 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+
+\usepackage{titlesec}% http://ctan.org/pkg/titlesec
+\titleformat{\section}%
+  [hang]% <shape>
+  {\normalfont\bfseries\Large}% <format>
+  {}% <label>
+  {0pt}% <sep>
+  {}% <before code>
+\renewcommand{\thesection}{}% Remove section references...
+\renewcommand{\thesubsection}{}%... from subsections
+
+\title{Module 9 - Monte Carlo methods}
+\author{Pawel Chilinski}
+
+\begin{document}
+\input{PawelChilinski_module9_exercises-concordance}
+\maketitle
+
+\subsection{Exercise 1.} Assume that the probability distribution of a phone
+call duration is the following:
+
+\begin{table}[H]
+\begin{center}
+  \begin{tabular}{ |l | l |l| l| l | l |l|l|}
+  \hline
+    duration [min.] & 1 & 2 & 3 & 5 & 8 & 10 & 15 \\ \hline
+    probability & 0.1 & 0.15 & 0.25 & 0.2 & 0.15 & 0.1& 0.05\\ \hline    
+  \end{tabular}
+\end{center}
+\end{table}
+
+\begin{itemize}
+  \item Generate 1000 observations pertaining to this distribution. Use function sample(). Compare the frequencies of the generated values with theoretical probabilities.
+\begin{figure}[H]
+\begin{center}
+\begin{Schunk}
+\begin{Sinput}
+> vals<-c(1,2,3,5,8,10,15)
+> probs<-c(0.1,0.15,0.25,0.2,0.15,0.1,0.05)
+> set.seed(101)
+> generated_sample <- sample(x=vals,size=1000,replace=T,prob=probs)
+> barplot(table(generated_sample)/1000,xlab="duration[min.]",ylab="probability",border=F)
+> names(probs)<-vals
+> barplot(probs,border="green",add = TRUE)
+> legend("topleft", legend=c("generated","theoretical"), col = c("gray","green"), lty =c(1,1),pch=rep(0,0))
+\end{Sinput}
+\end{Schunk}
+\includegraphics{PawelChilinski_module9_exercises-002}
+\caption{Generating sample and comparing with theoretical probabilities}
+\end{center}
+\end{figure}
+
+\item Use Monte Carlo method to calculate the probability of an event that a total duration of 10 independent
+phone calls exceeds one hour.\\
+To simulate this experiment I generate 1000 samples, where each sample is 10
+calls which durations are simulated using sample function. I check what fraction
+of samples exceed 60 minute in total. This fraction is the estimate of the
+probability we are looking for. 
+\begin{Schunk}
+\begin{Sinput}
+> set.seed(101)
+> sum(replicate(1000,sum(sample(x=vals,size=10,replace=T,prob=probs)),simplify = T)>60)/1000
+\end{Sinput}
+\begin{Soutput}
+[1] 0.221
+\end{Soutput}
+\end{Schunk}
+\end{itemize}
+
+\subsection{Exercise 2.} Find an estimate of the following integral using Monte
+Carlo method:
+\begin{flalign*}
+& \int_0^1 exp(-x^2/2)dx
+\end{flalign*}
+based on a pseudo-random sample of size 5000. Calculate standard error of this approximation and construct
+confidence interval for $\theta$. Is the actual value of the integral covered by the
+confidence interval constructed using Monte Carlo method?
+
+\begin{flalign*}
+& \theta = \int_0^1 exp(-x^2/2)f(x)dx=E[exp(-U^2/2)] \text{ , where } U \sim U(0,1) \text{ and } f(x)=1 \\
+& \hat{\theta}=\frac{1}{m}(exp(-U_1^2/2) + ... + exp(-U_m^2/2))
+\end{flalign*}
+Estimating:
+\begin{Schunk}
+\begin{Sinput}
+> set.seed(101)
+> m<-5000
+> #simulation
+> sample<-exp(-runif(m)^2/2)
+> #estimate
+> (estimate <- mean(sample))
+\end{Sinput}
+\begin{Soutput}
+[1] 0.8548243
+\end{Soutput}
+\end{Schunk}
+Computing SE and confidence interval:
+\begin{Schunk}
+\begin{Sinput}
+> #standard error
+> (se<-sqrt(sum((sample-estimate)^2)/(m*(m-1))))
+\end{Sinput}
+\begin{Soutput}
+[1] 0.001726819
+\end{Soutput}
+\begin{Sinput}
+> #CI
+> alfa<-0.05
+> (ci<-c(estimate-qnorm(1-alfa/2)*se,estimate+qnorm(1-alfa/2)*se))
+\end{Sinput}
+\begin{Soutput}
+[1] 0.8514398 0.8582088
+\end{Soutput}
+\end{Schunk}
+Because this integral doesn't have analytical solution I use r integrate
+function computation as real value:
+\begin{Schunk}
+\begin{Sinput}
+> (val <- integrate(function(x){exp(-x^2/2)},0,1))
+\end{Sinput}
+\begin{Soutput}
+0.8556244 with absolute error < 9.5e-15
+\end{Soutput}
+\begin{Sinput}
+> val$value>ci[1] & val$value<ci[2] 
+\end{Sinput}
+\begin{Soutput}
+[1] TRUE
+\end{Soutput}
+\end{Schunk}
+So we can see that actual value of the integral is covered by the
+confidence interval constructed using Monte Carlo method.
+
+\subsection{Exercise 3.} Suppose that $X \sim N(1,1)$. Generate a pseudo-random
+sample of size 500 in order to estimate probability $P(exp(X)>2)$ and standard
+error of your estimator.
+\begin{Schunk}
+\begin{Sinput}
+> set.seed(101)
+> m<-500
+> #generating sample
+> sample<-rnorm(m)
+> #estimate
+> (estimate <- sum(exp(sample)>2)/m)
+\end{Sinput}
+\begin{Soutput}
+[1] 0.228
+\end{Soutput}
+\begin{Sinput}
+> #standard error
+> sqrt(estimate*(1-estimate)/m)
+\end{Sinput}
+\begin{Soutput}
+[1] 0.01876252
+\end{Soutput}
+\end{Schunk}
+\subsection{Exercise 4.} Data rivers  available in the base package of R  gives
+the lengths (in miles) of 141 'major' rivers in North America. 
+Using bootstrap method (with 3000 samples) calculate standard error of the sample mean of rivers' lengths. 
+Find percentile bootstrap confidence interval for an average length of a river.
+
+\begin{Schunk}
+\begin{Sinput}
+> data(rivers)
+> (rivers_mean <- mean(rivers))
+\end{Sinput}
+\begin{Soutput}
+[1] 591.1844
+\end{Soutput}
+\begin{Sinput}
+> n<-length(rivers)
+> m<-3000
+> set.seed(101)
+> bootstrap_means<-replicate(m,mean(sample(rivers,n,replace=T)))
+> # standard error
+> (se <- sqrt(sum((bootstrap_means-mean(bootstrap_means))^2)/(m-1)))
+\end{Sinput}
+\begin{Soutput}
+[1] 41.1667
+\end{Soutput}
+\begin{Sinput}
+> #confidence interval
+> alfa<-0.05
+> (ci <- c(rivers_mean - quantile(bootstrap_means-rivers_mean,1-alfa/2), 
++ 					rivers_mean - quantile(bootstrap_means-rivers_mean,alfa/2)))
+\end{Sinput}
+\begin{Soutput}
+   97.5%     2.5% 
+507.2961 664.9021 
+\end{Soutput}
+\end{Schunk}
+
+\subsection{Exercise 5.} Using the quantile transformation method generate n = 200 random numbers pertaining to exponential
+distribution with parameter  $\lambda=1.5$. Draw histogram of the sample and compare it
+with theoretical density of exponential distribution.\\
+
+To use quantile transformation method we have to find inverse of CDF for
+exponential distribution:
+\begin{flalign*}
+& F(x)=1-e^{-\lambda x} \\
+& 1-F=e^{-\lambda x} \\
+& log(1-F)=-\lambda x\\
+& F^{-1}=-\frac{log(1-F)}{\lambda}
+\end{flalign*}
+So to generate random numbers pertaining to exponential distribution we have to
+generate from unform distribution and apply trnasformation:
+\begin{flalign*}
+& -\frac{log(1-U)}{\lambda} \text{ , where } U \sim U(0,1)
+\end{flalign*}
+
+\begin{figure}[H]
+\begin{center}
+\begin{Schunk}
+\begin{Sinput}
+> n<-200
+> set.seed(101)
+> sample<- -log(1-runif(n))/1.5
+> hist(sample,freq=F,col="gray",border=F,breaks=20)
+> x<-seq(0,5,0.1)
+> lines(x,dexp(x, rate=1.5),type="l",pch=0,col="blue")
+> legend("topright", legend=c("quantile transformation","theoretical density"), col = c("gray","blue"), lty =c(1,1),pch=rep(0,0))
+\end{Sinput}
+\end{Schunk}
+\includegraphics{PawelChilinski_module9_exercises-009}
+\caption{Generating sample using quantile transformation and comparing with
+theoretical density of exponential distribution}
+\end{center}
+\end{figure}
+
+\end{document}

@@ -1,0 +1,1 @@
+982eb01ce0b5d276c8d98744b5881e91  adjR2.formula  1

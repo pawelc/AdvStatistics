@@ -1,0 +1,2380 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{rotating}
+\usepackage{longtable}
+\usepackage{hyperref}
+\hypersetup{%
+    pdfborder = {0 0 0}
+}
+\usepackage[all]{hypcap}
+  
+\DefineVerbatimEnvironment{RoutputTight}{Verbatim}{fontsize=\tiny,
+xleftmargin=-0.5cm}
+
+\title{Advanced Statistical Methods - Project.}
+\author{Pawel Chilinski}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+\SweaveOpts{prefix.string=figures/fig}
+\maketitle
+
+\tableofcontents
+
+\listoffigures
+
+\listoftables
+
+\section{Introduction}
+This project performs exercise of correlational(observational) studies. We have
+data (predictors) which was gathered by the The World Bank \cite{worldbankData} and the predicted
+variable (Corruption.Index) Failed States Index computed by the United
+States think-tank Fund for Peace \cite{WikiFailedStatesIndex}. Because of the
+nature of the data we cannot make strong causal conclusions on how predictors
+influence the predicted variable (because of possible lurking variables). I
+assume that we deal with the simple random sample.
+The data consists of 31 predictor variables which gives
+$2^{31}=$\Sexpr{format(2^31, big.mark = " ")} different models that can be fitted.
+
+\section{Data}
+
+<<LOAD_LIBS,echo=F>>=
+library(psych)
+library(gclus)
+library(Matrix)
+library(MASS)
+library(car)
+library(faraway)
+library(leaps)
+library(lars)
+library(pls)
+library(mgcv)
+library(WDI)
+setwd("/Users/pawelc/Documents/workspace/AdvStatistics/project")	
+@
+<<FUN,cache=T,echo=F>>=
+#function that gets formula for a given model eventually changing the predicted variable
+get_formula<-function(model,response="Corruption.Index"){
+	as.formula(paste(response,"~",paste(names(model$coefficients)[-1],collapse = "+"),sep=""))
+}	
+#tries to add quadratic term for each predictor in the model and check if new quadratic term is significant. Returns all models with significant quadratic terms plus
+#model containing all significant quadratic terms.
+add_quadratic_for_each_predictor_and_check<-function(model){
+	models<-list()
+	quad_vars<-c()
+	for(var in names(model$coefficients)[-1]){
+		quad_var<-paste("I(",var,"^2)",sep="")		
+		model_with_quad_term <- update(model,as.formula(paste(".~.+",quad_var)))
+		model_with_quad_term_sum<-summary(model_with_quad_term)
+		if(model_with_quad_term_sum$coefficients[quad_var,"Pr(>|t|)"]<0.05){
+			models[[quad_var]]<-model_with_quad_term
+			quad_vars<-c(quad_vars,quad_var)
+		}
+	}
+	if(length(quad_vars)>1){
+		quad_var<-paste(quad_vars,collapse="+",sep="")
+		model_with_quad_term <- update(model,as.formula(paste(".~.+",quad_var)))
+		model_with_quad_term_sum<-summary(model_with_quad_term)
+		models[[quad_var]]<-model_with_quad_term
+	}
+	return(models)
+}
+
+#Performs leave one out cross validation for model represented by a given formula and returns average RMSE.
+cross_validate <- function(model){
+	#tally of sum of squared errors
+	formula<-get_formula(model)
+	sum_err_sq<-0
+	for(i in 1:nrow(kaggle.data)){		
+		model.cv <- lm(formula, model$model[-i,])
+		true.value <- kaggle.data[i,"Corruption.Index"] 
+		predicted <- predict(model.cv,kaggle.data[i,])
+		sum_err_sq <- sum_err_sq + (predicted-true.value)^2
+	}
+	return(sqrt(sum_err_sq/nrow(kaggle.data)))
+}
+@
+
+<<LOAD_DATA,echo=F,cache=T>>=
+#Loading the data:
+kaggle.data <- read.csv("kaggle.csv",header=T)	
+names(kaggle.data)<-c("country",names(kaggle.data)[-1])
+variable.names<-names(kaggle.data)[names(kaggle.data) != "country"]
+all.predictor.names<-variable.names[variable.names!="Corruption.Index"]
+@
+Description of columns and data types:
+\begingroup
+\begin{table}[H]
+\fontsize{7pt}{8pt}\selectfont
+\begin{center}
+  \advance\leftskip-0.5cm
+  \begin{tabular}{ l | p{1.5cm} p{3cm} p{10cm} }
+    \textbf{Variable} & \textbf{Type} & \textbf{Name} & \textbf{Description} \\
+    \hline country & nominal & country & Country for which row contains various
+    variables\\
+    AG.LND.AGRI.K2 & ratio & Agricultural land (sq. km) & Agricultural land
+    refers to the share of land area that is arable, under permanent crops, and under permanent pastures.\\
+    AG.LND.ARBL.HA.PC & ratio & Arable land (hectares per person) & Arable
+land (hectares per person) includes land defined by the FAO as land under temporary crops ,temporary meadows for mowing or for pasture,
+land under market or kitchen gardens, and land temporarily fallow.  Land
+abandoned as a result of shifting cultivation is excluded. \\
+    AG.LND.ARBL.ZS & counted fraction & Arable land (\% of land area) & \% of
+    land area which is Arable land \\ 
+    AG.LND.CROP.ZS & counted fraction & Permanent cropland (\% of land area) & A permanent crop is one produced from plants which last for many seasons, rather
+than being replanted after each harvest.\\
+    AG.LND.TOTL.K2& ratio & Land area (sq. km) & Land area is a country's
+total area.\\
+    AG.PRD.CROP.XD& ratio & Crop production index (2004-2006 = 100) & Crop
+production index shows agricultural production for each year relative to the base period 2004-2006. 
+It includes all crops except fodder crops.\\
+    AG.PRD.FOOD.XD& ratio & Food production index (2004-2006 = 100) & Food
+production index covers food crops that are considered edible and that contain nutrients. 
+Coffee and tea are excluded because, although edible, they have no nutritive value.\\
+    AG.PRD.LVSK.XD& ratio & Livestock production index (2004-2006 = 100) & Livestock production index includes meat and milk from all sources, dairy products such as cheese, and eggs, honey, raw silk, wool, 
+and hides and skins.\\
+    AG.SRF.TOTL.K2& ratio & Surface area (sq. km) & Surface area is a
+country's total area, including areas under inland bodies of water and some coastal waterways.\\
+    AG.YLD.CREL.KG& ratio & Cereal yield (kg per hectare) & Cereal yield
+    measured as kilograms per hectare of harvested land, includes wheat, rice, maize, barley, oats, rye, millet, sorghum, buckwheat, and mixed grains.\\
+    BM.GSR.INSF.ZS& counted fraction & Insurance and financial services (\% of
+service imports, \% BoP) & Insurance and financial services cover various types of insurance
+provided to nonresidents by resident insurance enterprises and vice versa, and financial intermediary and auxiliary services 
+(except those of insurance enterprises and pension funds) exchanged between residents and nonresidents.\\
+    BM.GSR.TRVL.ZS& counted fraction & Travel services (\% of service imports,
+BoP) & Travel covers goods and services acquired from an economy by travelers for their own use during visits of less than one year in that economy for either 
+business or personal purposes.\\
+    BX.GSR.CMCP.ZS& counted fraction& Communications, computer, etc. (\% of
+service exports, \% BoP) & Communications, computer, information, and other services cover
+international telecommunications; computer data; news-related service transactions between residents and nonresidents; 
+construction services; royalties and license fees; miscellaneous business, professional, and technical services; personal, 
+cultural, and recreational services; manufacturing services on physical inputs owned by others; and maintenance and repair services and 
+government services not included elsewhere.\\
+    BX.KLT.DINV.WD.GD.ZS& counted fraction & Foreign direct investment, net
+inflows (\% of GDP) & Foreign direct investment are the net inflows of
+investment to acquire a lasting management interest (10 percent or more of voting stock) in an enterprise operating in an economy other than that of the investor.\\
+    EG.GDP.PUSE.KO.PP& ratio & GDP per unit of energy use (PPP \$ per kg of
+oil equivalent) & GDP per unit of energy use is the PPP GDP per kilogram of oil
+equivalent of energy use.\\
+    EG.GDP.PUSE.KO.PP.KD& ratio & GDP per unit of energy use (constant 2005
+PPP \$ per kg of oil equivalent) & \\
+    EG.USE.COMM.KT.OE& ratio & Energy use (kt of oil equivalent) & Energy
+use refers to use of primary energy before transformation to other end-use fuels, which is equal to indigenous production plus imports and stock changes, 
+minus exports and fuels supplied to ships and aircraft engaged in international transport.\\
+    EG.USE.COMM.GD.PP.KD& ratio & Energy use (kg of oil equivalent) per
+\$1,000 GDP (constant 2005 PPP) & Energy use per PPP GDP is the kilogram of oil equivalent
+of energy use per constant PPP GDP.\\
+    EG.USE.ELEC.KH.PC& ratio & Electric power consumption (kWh per capita) & Electric power consumption measures the production of power plants and combined heat and power plants less transmission, distribution, 
+and transformation losses and own use by heat and power plants.\\
+    EN.ATM.CO2E.KD.GD& ratio & CO2 emissions (kg per 2005 US\$ of GDP) & \\
+    EN.ATM.CO2E.PC& ratio & CO2 emissions (metric tons per capita)  &  Carbon
+dioxide emissions are those stemming from the burning of fossil fuels and the manufacture of cement. They include carbon dioxide produced during consumption of solid, 
+liquid, and gas fuels and gas flaring.\\
+    EN.ATM.PM10.MC.M3& ratio & PM10, country level (micrograms per cubic
+meter) & Particulate matter concentrations refer to fine suspended particulates less than 10 microns in diameter (PM10) that are capable of penetrating 
+deep into the respiratory tract and causing significant health damage.\\
+    ER.H2O.INTR.K3& ratio & Renewable internal freshwater resources, total
+(billion cubic meters) & Renewable internal freshwater resources flows refer to internal
+renewable resources (internal river flows and groundwater from rainfall) in the country.\\
+    ER.H2O.INTR.PC& ratio & Renewable internal freshwater resources per capita
+(cubic meters) & Renewable internal freshwater resources flows refer to internal renewable resources (internal river flows and groundwater from rainfall) in the country. 
+Renewable internal freshwater resources per capita are calculated using the World Bank's population estimates.\\
+    FM.LBL.MQMY.GD.ZS& counted fraction & Money and quasi money (M2) as \% of
+GDP & Money and quasi money comprise the sum of currency outside banks, demand deposits other than those of the central government, and the time, savings, 
+and foreign currency deposits of resident sectors other than the central government. This definition of money supply is frequently called M2; 
+it corresponds to lines 34 and 35 in the International Monetary Fund's (IMF) International Financial Statistics (IFS).\\
+    FS.AST.PRVT.GD.ZS& counted fraction & Domestic credit to private sector
+(\% of GDP) & Domestic credit to private sector refers to financial resources provided to the private sector, such as through loans, 
+purchases of nonequity securities, and trade credits and other accounts receivable, that establish a claim for repayment. 
+For some countries these claims include credit to public enterprises.\\
+    IC.CRD.PRVT.ZS& counted fraction & Private credit bureau coverage (\% of
+adults) & Private credit bureau coverage reports the number of individuals or firms listed by a private credit bureau with current information on repayment history, 
+unpaid debts, or credit outstanding. The number is expressed as a percentage of the adult population.\\
+    IC.EXP.DURS& ratio & Time to export (days) & Time is recorded in calendar
+days. The time calculation for a procedure starts from the moment it is
+initiated and runs until it is completed.\\
+    IC.LGL.CRED.XQ& ordinal & Strength of legal rights index (0=weak to
+10=strong) & Strength of legal rights index measures the degree to which collateral and bankruptcy laws protect the rights of borrowers and lenders and thus facilitate lending. 
+The index ranges from 0 to 10, with higher scores indicating that these laws are better designed to expand access to credit.\\
+    NE.RSB.GNFS.ZS& counted fraction & External balance on goods and services
+(\% of GDP) & External balance on goods and services (formerly resource balance) equals exports of goods and services minus imports of goods and services 
+(previously nonfactor services).\\
+    NE.TRD.GNFS.ZS& counted fraction & Trade (\% of GDP) & Trade is the sum
+of exports and imports of goods and services measured as a share of gross domestic product.\\
+    Corruption.Index& ratio & Failed States Index (World Corruption Index) &
+    \href{http://en.wikipedia.org/wiki/List_of_countries_by_Failed_States_Index}{Definition}\\
+  \end{tabular}
+\end{center}
+\end{table}
+\endgroup 
+
+\subsection{Validating the data.} 
+
+The total land should be bigger the agricultural land (checking if some county
+has agricultural bigger that total area):
+<<SHOW_INVALID_DATA>>=
+as.character(kaggle.data$country[kaggle.data$AG.LND.AGRI.K2 > kaggle.data$AG.LND.TOTL.K2])
+@
+Total area of country (including water area) should be bigger than its land
+area:
+<<TOTAL_GT_LAND>>=
+all(kaggle.data$AG.SRF.TOTL.K2 >= kaggle.data$AG.LND.TOTL.K2)
+@
+Percent of financial services should be $\in (0,100)$, show countries and values
+not fulfilling this:
+<<>>=
+kaggle.data[kaggle.data$BM.GSR.INSF.ZS<0 | kaggle.data$BM.GSR.INSF.ZS>100,c("country","BM.GSR.INSF.ZS")]
+@
+The rest of the data seems semantically correct.
+\\ 
+Fixing the data:
+<<CLEAN_DATA,dependson=LOAD_DATA,cache=T>>=
+#so we can remove data for Macedonia
+kaggle.data<-kaggle.data[kaggle.data$AG.LND.AGRI.K2 <= kaggle.data$AG.LND.TOTL.K2,]
+#for Afganistan we can check on data.worldbank.org that in 2008 it had BM.GSR.INSF.ZS = 5.8457031725
+kaggle.data[kaggle.data$country=="Afghanistan","BM.GSR.INSF.ZS"]<-5.8457031725
+#because Eritrea and Laos has incorrect value for BM.GSR.INSF.ZS and 
+#we cannot fill it from the website we remove observation for this country
+kaggle.data<-kaggle.data[kaggle.data$country!="Eritrea" & kaggle.data$country!="Laos",]
+#It looks that data for Qatar contains incorrect values for few attributes, also
+#without cleaning the data for this country becomes outlier and influential
+#observation so removing it
+kaggle.data<-kaggle.data[kaggle.data$country!="Qatar",]
+@
+
+Describing the data, we can see that all values are reasonable and output
+variable can be considered normally distributed for the requirements of the
+linear regression model (the kurtosis and skewness are within limits):
+\begingroup
+    \fontsize{8pt}{9pt}\selectfont
+<<DESCRIBE,echo=F,cache=T,dependson=CLEAN_DATA>>=
+description<-describe(kaggle.data)
+#build formula that transforms predictor to log(predictor) if the data for the predictor is strongly positively skewed
+get_formula_log_skew<-function(){
+	log.pred<-sapply(all.predictor.names,function(pred){
+				if(description[pred,"skew"]>5){
+					paste("log(",pred,")",sep="")
+				}else{
+					pred	
+				}
+			})
+	paste("Corruption.Index~",paste(log.pred,collapse="+"),sep="")
+}
+@
+<<DESCRIBE_PRINT,echo=F>>=
+options(width=400)
+description
+@
+\endgroup
+
+
+<<HIST,fig=TRUE,height=14,width=10,echo=F,include=false>>=
+par(mfrow=c(ceiling(length(variable.names)/5),5))
+for(var.name in variable.names){
+	hist(kaggle.data[[var.name]],main="",ylab="",xlab=var.name)
+}
+@
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-HIST.pdf}
+\caption{Histograms of variables}
+\end{center}
+\end{figure}
+
+<<PAIRS,fig=TRUE,width=31,height=31,echo=F,include=false>>=
+kaggle.r <- abs(cor(kaggle.data[variable.names]))
+kaggle.color <- dmat.color(kaggle.r) 
+cpairs(kaggle.data[variable.names], panel.colors = kaggle.color, gap = .1, upper.panel=NULL,pch=".",cex=4,cex.labels=0.6,xaxt='n',yaxt='n')
+@
+\begin{figure}[H]
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-PAIRS.pdf}
+\caption{Scatterplots between variables}
+\label{PAIRS_PLOT}
+\end{figure}
+\begingroup
+\renewcommand{\arraystretch}{0.5} % space between rows (1 standard)
+\begin{sidewaystable}
+\advance\leftskip-0.5cm
+\fontsize{0.05cm}{1em}\selectfont{
+\centering
+\caption{Pearson correlations between variables (describing linear relationship) as first
+number in a cell, Spearman's rank correlations between variables as second
+number in a cell (used to find monotonic relationships) and permutation test as
+third number in a cell (percent of permutations the has bigger/smaller r value),
+red font is used for significant values.
+Because predictors and explained variable distributions depart from the normal distributions (|skew|>3, |kurtosis|>10, examining histograms) I am using
+Spearman's correlation test and coefficient additionally to the Pearson's one.}
+<<CORR_DATA,cache=T,echo=F,dependson=CLEAN_DATA>>=
+permutation.test<-function(data1,data2){
+	experiments<-1000
+	r<-cor(data1,data2)
+	rPerm<-numeric(experiments)
+	for(i in 1:experiments){
+		perm<-sample(data1)
+		rPerm[i]<-cor(perm,data2)
+	}
+	ifelse(r>=0,length(rPerm[rPerm>r])/experiments,length(rPerm[rPerm<r])/experiments)
+}
+pearson.est.mat<-matrix(nrow=length(variable.names),ncol=length(variable.names))
+spearman.est.mat<-matrix(nrow=length(variable.names),ncol=length(variable.names))
+pearson.pval.mat<-matrix(nrow=length(variable.names),ncol=length(variable.names))
+spearman.pval.mat<-matrix(nrow=length(variable.names),ncol=length(variable.names))
+perm.test.mat<-matrix(nrow=length(variable.names),ncol=length(variable.names))
+set.seed(127)
+for(r in 1:length(variable.names)){
+	for(c in 1:length(variable.names)){
+		if(r>c){
+			res.pearson<-cor.test(kaggle.data[[variable.names[r]]],kaggle.data[[variable.names[c]]],method="pearson")
+			pearson.est.mat[r,c]<-res.pearson$estimate
+			pearson.pval.mat[r,c]<-res.pearson$p.value
+			
+			res.spearman<-cor.test(kaggle.data[[variable.names[r]]],kaggle.data[[variable.names[c]]],method="spearman",exact=T)
+			spearman.est.mat[r,c]<-res.spearman$estimate
+			spearman.pval.mat[r,c]<-res.spearman$p.value
+			
+			perm.test.mat[r,c]<-permutation.test(kaggle.data[[variable.names[r]]],kaggle.data[[variable.names[c]]])			
+		}
+	}
+}
+@
+
+<<CORR_RENDER,echo=F, results = tex,include=True>>=
+cat(sprintf("\\begin{tabular}{p{0.5cm}%s}\n",paste(replicate(length(variable.names)-1,"p{0.5cm}"),collapse="")))
+#top header
+cat(sprintf(" %s\\\\ \n",paste(sapply(variable.names[-length(variable.names)], function(x){sprintf("& %s",x)}),collapse="")))
+
+for(r in 1:length(variable.names)){
+	cat(sprintf("%s",variable.names[r]))
+	for(c in 1:length(variable.names)){
+		if(r>c){			
+			cat("&")
+			if(pearson.pval.mat[r,c]<=0.05) cat("\\textcolor{Red}{")
+			cat(sprintf("%+1.2f",pearson.est.mat[r,c]))
+			if(pearson.pval.mat[r,c]<=0.05) cat("}")
+			
+			if(spearman.pval.mat[r,c]<=0.05) cat("\\textcolor{Red}{")
+			cat(sprintf("%+1.2f",spearman.est.mat[r,c]))
+			if(spearman.pval.mat[r,c]<=0.05) cat("}")
+			
+			if(perm.test.mat[r,c]<=0.05) cat("\\textcolor{Red}{")
+			cat(sprintf("%+1.2f",perm.test.mat[r,c]))
+			if(perm.test.mat[r,c]<=0.05) cat("}")
+		}
+	}
+	cat(sprintf("%s \\\\ \n",paste(replicate(length(variable.names)-r+1,"& "),collapse="")))
+}
+cat("\\label{CORR_TABLE}")
+cat("\\end{tabular}\n")
+@
+}
+\end{sidewaystable}
+\endgroup
+
+\section{Full model}
+   
+<<FULL_MODEL,echo=F,cache=T,dependson=CLEAN_DATA>>=
+model.full<-lm(Corruption.Index~.,kaggle.data[variable.names])
+#TODO it looks that WLS gives R^2=0.99 but the qqplots shows divergence from the normality, it gives better r^2 for all models
+#cases with hight variabilty gets low weight
+#model.full<-lm(Corruption.Index~.,kaggle.data[variable.names],weights = 1/model.full$residuals^2)
+model.full.sum<-summary(model.full)
+@
+After fitting linear model with all predictors we obtain following
+significant cooefcients and their 95\% confidence intervals (the rest are
+insignificant so not showing them):
+<<FULL_MODEL_SHOW_SIG_COEF,echo=F>>=
+sign.idx<-model.full.sum$coefficients[,4]<0.05
+cbind(model.full.sum$coefficients[sign.idx,],confint(model.full)[sign.idx,])
+@
+
+The entire model (tested by $H_0$ all cooefcients are 0 against some of them are not
+zero) is significant with F statistic p-value
+\Sexpr{1-pf(model.full.sum$fstatistic[1],length(all.predictor.names),df.residual(model.full))}
+and Adjusted R-squared: \Sexpr{model.full.sum$adj.r.squared}.
+
+
+\section{Veryfying model assumptions}
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN,fig=TRUE,height=5,width=7,echo=F>>=
+par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.full, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for Corruption.Index$\sim .$}
+\end{center}
+\end{figure}
+
+Assumptions of multiple linear regression model:
+\subsection{Quantitative response variable (Corruption.Index)} 
+The response variable is quantitative.
+\subsection{p-1 explanatory independent quantitative variables}
+From the pairs Figure-\ref{PAIRS_PLOT} and correlation Table-\ref{CORR_TABLE} we can see
+that some of the predictors are linearly dependant and they will be removed later by different selection
+algorithms.
+\subsection{Values of the predictors are deterministic}
+We can safely assume that the values of predictors are deterministic because
+they were collected by respected research organisation. 
+\subsection{Corruption.Index are values of random variables satyfing
+linear equations}
+Looking at pairs Figure-\ref{PAIRS_PLOT} we can see that most of the predictor
+variables influence response variable in linear way. Later I am going to try to
+apply quadratic transformation of predictors to see if it can improve the model.
+\subsection{Normality assumptions of errors}
+  $\epsilon_i$ mutually independent random variables with mean 0 and
+  variance $\sigma^2$. For testing purposes we assume that $\epsilon_i \sim
+  N(0,\sigma^2)$ (mean 0 and constant variance). The distribution assumption is
+  needed for testing purposes and for the least sqares estimates to be optimal.
+  
+Checking normality assumption for errors:
+\begin{figure}[H]
+\begin{center}
+<<QQ,fig=T,echo=F>>=
+par(mfrow=c(2,1))
+qqnorm(resid(model.full),main="qq plot of residuals",)
+qqline(resid(model.full))
+
+model.full.studres <- rstudent(model.full)
+qqnorm(model.full.studres,main="qq plot of studentized residuals")
+qqline(model.full.studres)
+@
+\caption{QQ plot}
+\end{center}
+\end{figure}
+QQ plots depicts quite good linear trend so we can assume residuals have normal
+distribution. The long-tailed distributions of errors could pose problems for
+tools we used here but as we see there are no visible long tails on qqplot.
+We can also run Shapiro-Wilk normality test on residuals which $H_0$ states that
+data is normal. The p-value from the test is
+\Sexpr{round(shapiro.test(residuals(model.full))$p.value,digits=2)} so we cannot reject
+$H_0$.
+  
+Residuals are estimators for the error term on the regression model so they have
+to fullfil requirements imposed on the error term. 
+\begin{figure}[H]
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\begin{center}
+<<RES,fig=T,echo=F,width=10,height=10>>=
+outliers.from.stud.res.idx<-which(abs(model.full.studres)>=2)
+
+par(mfrow=c(2,2))
+
+plot(model.full$residuals,xlab="i",ylab="e",main="")
+abline(h=0,col="blue")
+plot(model.full.studres,xlab="i",ylab="studres",main="")
+abline(h=0,col="blue")
+abline(h=2,col="red",lty=2)
+abline(h=-2,col="red",lty=2)
+text(outliers.from.stud.res.idx,model.full.studres[outliers.from.stud.res.idx],labels=kaggle.data$country[outliers.from.stud.res.idx],pos=2)
+points(outliers.from.stud.res.idx,model.full.studres[outliers.from.stud.res.idx],col="red",pch=20)
+legend(x="topright",legend=c("outlier"),pch=c(20),col=c("red"))
+
+plot(model.full$fitted.values,model.full$residuals, xlab=expression(hat(Y)),ylab="e",main="")
+abline(h=0,col="blue")
+plot(model.full$fitted.values,model.full.studres, xlab=expression(hat(Y)),ylab="studres",main="")
+abline(h=0,col="blue")
+abline(h=2,col="red",lty=2)
+abline(h=-2,col="red",lty=2)
+text(model.full$fitted.values[outliers.from.stud.res.idx],model.full.studres[outliers.from.stud.res.idx],labels=kaggle.data$country[outliers.from.stud.res.idx],pos=2)
+points(model.full$fitted.values[outliers.from.stud.res.idx],model.full.studres[outliers.from.stud.res.idx],col="red",pch=20)
+legend(x="topright",legend=c("outlier"),pch=c(20),col=c("red"))
+@
+\caption{Residual plots and potential outliers}
+\label{RES_PLOT}
+\end{center}
+\end{figure}
+From residual plot $\hat{\epsilon} \sim \hat{Y}$ we can conclude that variance
+for observations with $\hat{Y}<50$ is smaller then variance for cases with
+$\hat{Y}>50$. Because I assumed independence of errors but it looks that errors
+are not identically distributed we can try two approaches i.e. try to fit two
+models for those two groups separately or use generalized linear model like
+weighted least squares.
+P-value of F test comparing those two variances equals:
+\Sexpr{sprintf("%0.1g",var.test(residuals(model.full)[fitted(model.full)<50],residuals(model.full)[fitted(model.full)>50])$p.value)}.
+
+<<ST_RES_VARS,fig=TRUE,height=14,width=10,echo=F,include=false>>=
+par(mfrow=c(ceiling(length(variable.names)/5),5))
+for(var.name in variable.names){
+	plot(kaggle.data[[var.name]],model.full.studres,xlab=var.name,ylab="",main="")
+	abline(h=0,col="blue")
+}
+@
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-ST_RES_VARS.pdf}
+\caption{Studentized residual plots for predictors}
+\label{ST_RES_VARS_PLOT}
+\end{center}
+\end{figure}
+ 
+We can check if there is linear pattern in the errors by fitting the regression
+line to residuals against fitted values:
+<<HOMOSCEDASTICITY_ERROR_FULL_MODEL_LM,echo=F>>=
+summary(lm(abs(residuals(model.full)) ~ fitted(model.full)))$coef
+@
+The coefficient for the fitted values isn't significant so we can conclude
+there is no liner relationship in the residuals.
+
+Using partial regression and partial residual plots we can look for
+transformations of the predictor variables that could be benefitial to the
+model: 
+<<PAR_REGR,fig=TRUE,height=14,width=10,echo=F,include=false>>= 
+avPlots(model.full,ask=F,layout=c(ceiling(length(variable.names)/5),5),main="")
+@
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-PAR_REGR.pdf}
+\caption{Partial regression plots}
+\end{center}
+\label{PAR_REGR_PLOT}
+\end{figure}
+
+<<PAR_RES,fig=TRUE,height=14,width=10,echo=F,include=false>>=
+crPlots(model.full,layout = c(ceiling(length(all.predictor.names)/5),5), ask = F)
+@
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-0.8cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-PAR_RES.pdf}
+\caption{Partial residual plots}
+\end{center}
+\label{PAR_RES_PLOT}
+\end{figure}
+  
+  \subsection{Additive impact of each predictor variable on explained
+  variable.}
+  This means that there are no interection effects between predictor variables
+  included in the model.
+  \subsection{Collinearity}
+  Columns of experiment matrix have to be
+  alegbraically independent otherwise we might not find solution or the
+  solution is not stable.\\
+
+The first check is to look at correlation matrix Table-\ref{CORR_TABLE}. The
+table marks all significant correlations in red font. The following pairs of
+variables have correlation bigger than 0.8:
+<<BIG_CORR_PAIRS,echo=F>>=
+options(width=100)
+apply(which(pearson.est.mat>0.8,arr.in=T),1,function(x){paste(variable.names[x[1]],variable.names[x[2]])})	
+@
+
+Checking coolinearity by computing
+rank of the matrix:
+<<RANK>>=
+X<-model.matrix(model.full)
+ncol(X)
+as.integer(rankMatrix(X))
+@
+
+We can also check if predictors are not collinear by checking that eigenvalues
+of the $X'X$ are not close to zero. The convenient way is to use statistic
+$\kappa=\sqrt{\frac{\lambda_l}{\lambda_p}}$ where $\lambda_l$ is the largest
+eigenvalue and $\lambda_p$ are other lambda values. Values greater equal than 30
+are considered as a problem  \cite{Faraway}. As we can see we observe very large
+values of this statistic: 
+<<EIGEN,echo=F>>=
+options(width=100)
+eigen.values<-eigen(t(as.matrix(X))%*%as.matrix(X),only.values =T)$values
+sort(sqrt(max(eigen.values)/eigen.values),decreasing = T)
+@
+We can also check for multiple collinearity by computing variance inflation
+factor (VIF) and removing variables with VIF $\geq$ 10. The VIF is
+$\frac{1}{1-R_i^2}$ where $R_i^2$ is multiple coefficient of determination for
+the model $X_i \sim X_1 + ... + X_{i-1} + X_{i+1} + X_{p-1}$. The standard error
+of coefficient $\beta_i$ is proportional to the $\sqrt{VIF_i}$
+($SE_{\hat{\beta_i}}=\sigma\sqrt{VIF_i}\frac{1}{\sqrt{S_{x_ix_i}}}$
+\cite{Faraway}). VIF values:
+<<VIF>>=
+vif(model.full)	
+@
+We see that we should remove predictors from the model because there exists
+multicollinearity between them. We remove predictors one by one until all
+remaining predictors in the model have VIF<10. When all predictors have VID
+below 10 the model consists of following coefficients: 
+<<PRUNE_BY_VIF,echo=F,results=hide,cache=T,dependson=FULL_MODEL;FUN>>=
+names(which.max(vif(model.full)))
+model2<-update(model.full,    ~ . - AG.LND.TOTL.K2)
+max(vif(model2))
+names(which.max(vif(model2)))
+model3<-update(model2,    ~ . - AG.PRD.FOOD.XD)
+max(vif(model3))
+names(which.max(vif(model3)))
+model4<-update(model3,    ~ . - EG.USE.COMM.GD.PP.KD)
+max(vif(model4))
+names(which.max(vif(model4)))
+model5<-update(model4,    ~ . - AG.SRF.TOTL.K2)
+max(vif(model5))
+names(which.max(vif(model5)))
+model6<-update(model5,    ~ . - FM.LBL.MQMY.GD.ZS)
+max(vif(model6))
+names(which.max(vif(model6)))
+model7<-update(model6,    ~ . - EG.GDP.PUSE.KO.PP.KD)
+max(vif(model7))
+model.vif<-model7
+model.vif.sum<-summary(model.vif)
+vif.formula<-get_formula(model.vif)
+@
+<<SHOW_VIF,echo=F>>=
+printCoefmat(model.vif.sum$coefficients)	
+@
+
+The resulting model has comparable adjusted
+$R^2=$\Sexpr{round(model.vif.sum$r.squared,digits=2)} to the full model.
+It doesn't explain variance worse than the full model (p-value of F-statistic
+comparing both models:
+\Sexpr{round(anova(model.full,model.vif)[["Pr(>F)"]][2],digits=2)}). The list of
+coefficients included in the model selected by the VIF method doesn't contain simultaneously both predictors that correlation is bigger than 0.8 (VIF method caters for pairwise collinearity and additionaly for
+multiple collinearity). The resulting model has still some coefficients which
+are not significant.
+
+\begin{figure}[H]
+\begin{center}
+<<VIF_MODEL_DIAG_FIG,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.vif, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by VIF method}
+\end{center}
+\end{figure}
+
+Checking if it would be beneficial to add quadratic terms:
+<<VIF_CHECK_QUAD,echo=F,cache=T,dependson=PRUNE_BY_VIF>>=
+model.vif.quad <- add_quadratic_for_each_predictor_and_check(model.vif)	
+@
+<<VIF_CHECK_QUAD_PRINT,echo=F>>=
+length(model.vif.quad)>0
+@
+
+\subsection{$p \leq n$}
+<<PN>>=
+length(all.predictor.names)+1
+nrow(kaggle.data)
+@
+\subsection{is specification of the structural equation of the model correct?}
+  
+The divergence from the structural assumptions can be check by analyzing plots:
+\begin{itemize}
+  \item Residual plots Figure-\ref{RES_PLOT}, Figure-\ref{ST_RES_VARS_PLOT},
+  \item Response varaible against each predictor variable Figure-\ref{PAIRS_PLOT}
+  \item Partial regression Figure-\ref{PAR_REGR_PLOT}. This allowes us to
+  visualize relationshop between response variable and specific predictor taking
+  out the effects of other predictors. I cannot see any outstanding nonlinearity there
+  which could have meant that we should change the functional
+  contribution of the predictor into the model.
+  \item Partial residuals Figure-\ref{PAR_RES_PLOT} is better for spotting
+  nonlinearity. The plots show partial residual plots and two lines i.e. least
+  sqares and nonparametric smooth which allows us to compare linear and
+  curved aproximation of the data. We can see that all sub figures show the
+  linear aproximation is good.
+\end{itemize}
+
+One of the possibilties to deal with the heteroscedasticity of variance in error
+term is to transform response variable. One of the procedures is Box-Cox
+transformation, that computes the likelihood of model given transformation of
+the response variable:
+\begin{flalign*}
+& g_\lambda(y)= \begin{cases} \frac{y^\lambda-1}{\lambda} \text{   } \lambda \neq 0 \\
+                              log(y) \text{   } \lambda = 0 \end{cases}
+\end{flalign*}
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+<<BOXCOX,fig=T,echo=F>>=
+boxcox(model.full,plotit=T, lambda=seq(0.4,1.6,by=0.1))	
+@
+\caption{Box-Cox graph showing log-likelihood of data depending on different
+values $\lambda$}
+\end{center}
+\end{figure}
+It shows that we can stay with the not transformed response variable because
+log-likelihood of the the data has maximum near $\lambda=1$. 
+I am also trying to tranform predictor variables with polynomials for different
+models in this project.
+ 
+  \subsection{Dependence of errors}
+  Because this is not a timeseries and it is difficult to order observations in
+  any way I assume that there is no dependence of errors.
+  \subsection{Occurance of outliers or influential observations}
+  
+Potential outliers were shown on the residual plots but we have to remember
+that influential obvservations can draw regression line towards them and
+influential observations can be undetected when looking only at outliers
+(moreover influetial observations don't have to be outliers).\\
+Leverages can be used to find potential influential observations. Using
+heuristic rule that observation is potentially influential if $h_{ii}\geq \frac{2p}{n}$ we can try to identify them:
+<<POTENTIAL_INFL,echo=F>>=
+model.full.hatvalues<-hatvalues(model.full)
+potential.influential.idx<-as.vector(which(model.full.hatvalues>= 2*length(model.full$coefficients)/nrow(kaggle.data)))
+as.character(kaggle.data$country[potential.influential.idx])
+@
+But we have to remember that $h_i$ depends only on X so even if the observation
+is far away from the mean(in terms of Mahalanpbis distance) it can still fit
+into the model. Therefore better tool to diagnose observation as influential is
+Cook's distance.
+The outliers for leverages can be also analized on half normal plot on which we
+see that we shouldn't be worried about unusual leverage values in our data:
+\begin{figure}[H]
+\begin{center}
+<<HALF_NORMAL_LEVERAGES,fig=TRUE,height=5,width=7,echo=F>>=
+halfnorm(model.full.hatvalues,labs=kaggle.data$country,ylab="Leverages",xlim=c(0,2.8))
+@
+\caption{Half normal plot for the leverage values from the full model}
+\end{center}
+\end{figure}
+Another test for outliers uses jacknife residuals and Bonferroni critical value.
+The maximum jacknife residual is \Sexpr{round(max(abs(model.full.studres)),digits=2)} for
+\Sexpr{as.character(kaggle.data$country[which.max(abs(model.full.studres))])} and the Bonferroni critical value is
+\Sexpr{round(qt(.05/(nrow(kaggle.data)*2),nrow(kaggle.data)-length(model.full$coefficients)-1),digits=2)}
+so we conclude that it is not an outlier because jacknife residual is less than
+absolute value of critical value.\\
+To identify influential observations we can look at halfnormal plot of the
+Cook's distances:
+\begin{figure}[H]
+\begin{center}
+<<HALF_NORMAL_COOK,fig=TRUE,height=5,width=7,echo=F>>=
+cook <- cooks.distance(model.full)
+halfnorm(cook,3,labs=kaggle.data$country,ylab="Cook's distances")
+@
+\caption{Half normal plot of the Cook statistics}
+\end{center}
+\end{figure}
+  
+  \subsection{All significant predictors are included}
+  We can be sure that there are some predictors out there (and not included in
+  the provided data set) that would be beneficial to explain the response
+  variable. I am not going to look for them.
+
+\section{Selection of variables}
+In this section I will fit different models based basen of different methods for
+selection of variables:
+
+<<SELECTION_CONF,cache=T,echo=F>>=
+#prediction performance important so higer value
+backward.alfa.crit <- 0.2	
+@
+
+
+\subsection{Backward elimination procedure based on t-tests}
+Select sub-model (starting from the full model) until all coefficients are
+significant at $\alpha_{crit}=$\Sexpr{backward.alfa.crit}. In each step we remove least
+significant predictor with the biggest p-value $>\alpha_{crit}$. We have to
+remember the removing variable from the model doesn't mean that the variable
+doesn't explain predicted variable. It means that all other variables already in
+the model have the same information as removed variable. Sometimes for the
+meaningfulness sake of the model it is better to retain variable even if its
+coefficient is nonsignificant. 
+The model constructed this way:
+<<BACK_EL_T_TEST,echo=F,cache=T,dependson=CLEAN_DATA;SELECTION_CONF>>=
+	backward_stepwise_t_test<-function(model){
+		while(T){
+			model.sum<-summary(model)
+			max.p.idx<-which.max(model.sum$coefficients[,4])
+			p.val<-model.sum$coefficients[,4][max.p.idx]
+			if(p.val > backward.alfa.crit){
+				remove.pred<-rownames(model.sum$coefficients)[max.p.idx]
+				model<-update(model,as.formula(paste("~.-",remove.pred)))		
+			}else{
+				break;
+			}
+		}
+		return(model)
+	}
+	model.backward.t.test<-backward_stepwise_t_test(model.full)
+	model.backward.t.test.sum<-summary(model.backward.t.test)	
+@
+<<BACK_EL_T_TEST_PRINT_COEF,echo=F>>=
+printCoefmat(model.backward.t.test.sum$coefficients)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_BACK_EL_T_TEST,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.backward.t.test, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by backward elimination procedure
+based on t-tests}
+\end{center}
+\end{figure}
+
+The final model with all significant predictors is not significantly worse than
+the full model because p value of F statistic comparing this model to the full
+model equals
+\Sexpr{round(anova(model.full,model.backward.t.test)["Pr(>F)"][2,],digits=2)} so we should use the smaller model. Also the selected model explains data better then constant model because p value of F statistics comparing this model to the
+constant model equals \Sexpr{sprintf("%0.3g",pf(model.backward.t.test.sum$fstatistic[1],model.backward.t.test.sum$fstatistic[2],model.backward.t.test.sum$fstatistic[3],lower.tail = FALSE))}.
+Adjusted R-squared: \Sexpr{round(model.backward.t.test.sum$adj.r.squared,digits=2)}.
+
+We see that it would be good to reomve Luxembourg because Cook's distance is bigger
+than one. After removing Luxembourg:
+
+<<BACK_EL_T_TEST_2,echo=F,cache=T,dependson=BACK_EL_T_TEST;FUN;SELECTION_CONF>>=
+model.backward.t.test<-lm(get_formula(model.backward.t.test),kaggle.data,subset = country != "Luxembourg")
+model.backward.t.test.sum<-summary(model.backward.t.test)	
+@
+<<BACK_EL_T_TEST_2_PRINT_COEF>>=
+printCoefmat(model.backward.t.test.sum$coefficients)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_BACK_EL_T_TEST_2,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.backward.t.test, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Luxembourg"])
+@
+\caption{Diagnostic plots for model selected by backward elimination procedure
+based on t-tests after removing Luxembourg}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.backward.t.test.sum$adj.r.squared,digits=2)}. We see also now
+that there is no need to remove any more data.
+
+There is a benefit in adding quadratic term for EG.GDP.PUSE.KO.PP:
+<<BACK_EL_T_TEST_QUAD,echo=F,cache=T,dependson=BACK_EL_T_TEST_2;SELECTION_CONF>>=
+model.backward.t.test.quads <- add_quadratic_for_each_predictor_and_check(model.backward.t.test)	
+model.backward.t.test.quad <- model.backward.t.test.quads[[1]]
+model.backward.t.test.quad.sum <- summary(model.backward.t.test.quad)
+@
+<<BACK_EL_T_TEST_QUAD_PRINT,echo=F>>=
+printCoefmat(model.backward.t.test.quad.sum$coef)
+@
+Adjusted R-squared:
+\Sexpr{round(model.backward.t.test.quad.sum$adj.r.squared,digits=2)}. Comparing the
+model with quadratic term to model without it results in significant difference
+with p-value \Sexpr{round(anova(model.backward.t.test.quad,model.backward.t.test)[["Pr(>F)"]][2],digits=3)}.
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_BACK_EL_T_TEST_QUAD,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.backward.t.test.quad, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by backward elimination procedure
+based on t-tests after removing Luxembourg
+and with quadratic term on EG.GDP.PUSE.KO.PP}
+\end{center}
+\end{figure}
+
+\subsection{Forward selection procedure based on t-tests}
+Starting from the constant model select extended model iteratively as far as all
+coefficients are significant at $\alpha=0.1$, the selected model:
+<<FORWARD_STEP_T_TEST,echo=F,cache=T,dependson=CLEAN_DATA>>=
+	forward_stepwise_t_test<-function(model){
+		remaining.vars<-all.predictor.names
+		while(T){
+			min.p.val<-NaN
+			min.p.val.idx<-NaN
+			for(i in 1:length(remaining.vars)){
+				model.tmp<-update(model,as.formula(paste("~.+",remaining.vars[i])))
+				model.tmp.sum<-summary(model.tmp)
+				if(is.nan(min.p.val) || model.tmp.sum$coef[remaining.vars[i],4]<min.p.val){
+					min.p.val<-	model.tmp.sum$coef[remaining.vars[i],4]
+					min.p.val.idx<-i
+				}
+			}
+			
+			if(!is.nan(min.p.val) && min.p.val<=0.1){				
+				model<-update(model,as.formula(paste("~.+",remaining.vars[min.p.val.idx])))	
+				#print(sprintf("Adding predictor %s with p.val %f",remaining.vars[min.p.val.idx], min.p.val))
+				remaining.vars<-remaining.vars[remaining.vars!=remaining.vars[min.p.val.idx]]
+			}else{
+				#print(sprintf("Selected model:"))
+				#summary(model)
+				break;
+			}
+		}
+		return(model)
+	}
+	model.forward.t.test<-forward_stepwise_t_test(lm(Corruption.Index~1,kaggle.data[variable.names]))
+	model.forward.t.test.sum<-summary(model.forward.t.test)	
+@
+<<FORWARD_STEP_T_TEST_PRINT,echo=F>>=
+printCoefmat(model.forward.t.test.sum$coefficients)	
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FORWARD_STEP_T_TEST,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.forward.t.test, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by forward selection procedure based
+on t-tests}
+\end{center}
+\end{figure}
+The selected model by the forward procedure is even smaller than the model
+selected by the backwards procedure but is still insignificantly worse than the
+full model because p value of F statistic comparing this model to the full
+model equals
+\Sexpr{round(anova(model.full,model.forward.t.test)["Pr(>F)"][2,],digits=2)}. We cannot compare directly (using for example F-test) the models created by the forward and backward procedures because none of them is the subset of the other one. Also the selected model explains data better then
+constant model because p value of F statistics comparing this model to the
+constant model equals
+\Sexpr{sprintf("%0.3g", pf(model.forward.t.test.sum$fstatistic[1],model.forward.t.test.sum$fstatistic[2],model.forward.t.test.sum$fstatistic[3],lower.tail = FALSE))}
+
+We see that it would be good to reomve Iceland because Cook's distance is bigger
+than one. After removing Icleland:
+
+<<FORWARD_STEP_T_TEST_2,echo=F,cache=T,dependson=FORWARD_STEP_T_TEST;FUN>>=
+model.forward.t.test<-lm(get_formula(model.forward.t.test),kaggle.data,subset = country != "Iceland")
+model.forward.t.test.sum<-summary(model.forward.t.test)	
+@
+<<FORWARD_STEP_T_TEST_2_PRINT_COEF,echo=F>>=
+printCoefmat(model.forward.t.test.sum$coefficients)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FORWARD_STEP_T_TEST_2,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.forward.t.test, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Iceland"])
+@
+\caption{Diagnostic plots for model selected by forward selection procedure based
+on t-tests after removing Iceland}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.backward.t.test.sum$adj.r.squared,digits=2)}. We see also now
+that there is no need to remove any more data.
+
+Checking if it would be beneficial to add quadratic terms:
+<<FORWARD_STEP_T_TEST_QUAD,echo=F,cache=T,dependson=FORWARD_STEP_T_TEST_2>>=
+	model.forward.t.test.quads <- add_quadratic_for_each_predictor_and_check(model.forward.t.test)
+@
+<<FORWARD_STEP_T_TEST_QUAD_PRINT,echo=F>>=
+	length(model.forward.t.test.quads)>0
+@
+
+\subsection{Backward based on AIC criterion}
+The selected model:
+<<BACK_AIC,echo=F,cache=T,dependson=CLEAN_DATA>>=
+model.bckwrd.aic <- step(model.full, direction = c("backward"), k=2, scope=list(lower=.~1),trace=0)
+model.bckwrd.aic.sum <- summary(model.bckwrd.aic)
+@   
+<<BACK_AIC_PRINT,echo=F>>=
+printCoefmat(model.bckwrd.aic.sum$coefficients)	
+@
+optimizes criterion AIC = -2max loglikelihood + 2p.
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_BACK_AIC,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.bckwrd.aic, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by Backward based on AIC criterion}
+\end{center}
+\end{figure}
+The final model is not significantly worse than
+the full model because p value of F statistic comparing this model to the full
+model equals
+\Sexpr{round(anova(model.full,model.bckwrd.aic)["Pr(>F)"][2,],digits=2)} so we should use the smaller model. Also the selected model explains data better then constant model because p value of F statistics comparing this model to the
+constant model equals 
+\Sexpr{sprintf("%0.3g", pf(model.bckwrd.aic.sum$fstatistic[1],model.bckwrd.aic.sum$fstatistic[2],model.bckwrd.aic.sum$fstatistic[3],lower.tail = FALSE))}.
+
+Adjusted R-squared:
+\Sexpr{round(model.bckwrd.aic.sum$adj.r.squared,digits=2)}.
+
+Checking if it would be beneficial to add quadratic terms:
+<<BACK_AIC_QUAD,echo=F,cache=T,dependson=BACK_AIC>>=
+	model.bckwrd.aic.quads <- add_quadratic_for_each_predictor_and_check(model.bckwrd.aic)
+@
+<<BACK_AIC_QUAD_PRINT,echo=F>>=
+	length(model.bckwrd.aic.quads)>0
+@
+
+\subsection{Forward based on AIC criterion}
+The selected model:
+<<FWD_AIC,echo=F,cache=T,dependson=CLEAN_DATA>>=
+model.frwd.aic <- step(lm(Corruption.Index ~ 1,kaggle.data), direction = c("forward"), k=2, scope=list(upper=as.formula(paste(".~.+",paste(all.predictor.names,collapse = "+")))),trace=0)
+model.frwd.aic.sum <- summary(model.frwd.aic)
+@   
+<<FWD_AIC_PRINT,echo=F>>=
+printCoefmat(model.frwd.aic.sum$coefficients)	
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FWD_AIC,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.frwd.aic, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by Forward based on AIC criterion}
+\end{center}
+\end{figure}
+
+The final model is not significantly worse than
+the full model because p value of F statistic comparing this model to the full
+model equals
+\Sexpr{round(anova(model.full,model.frwd.aic)["Pr(>F)"][2,],digits=2)} so we
+ should use the smaller model. Also the selected model explains data better then constant model because p value of F statistics comparing this model to the constant model equals 
+\Sexpr{sprintf("%0.3g",pf(model.frwd.aic.sum$fstatistic[1],model.frwd.aic.sum$fstatistic[2],model.frwd.aic.sum$fstatistic[3],lower.tail = FALSE))}.
+
+Adjusted R-squared:
+\Sexpr{round(model.frwd.aic.sum$adj.r.squared,digits=2)}.
+
+There is a benefit in adding quadratic term for EG.GDP.PUSE.KO.PP.KD:
+<<FWD_AIC_QUAD,echo=F,cache=T,dependson=FWD_AIC_2>>=
+model.frwd.aic.quads <- add_quadratic_for_each_predictor_and_check(model.frwd.aic)
+model.frwd.aic.quad <- model.frwd.aic.quads[[1]]
+model.frwd.aic.quad.sum <- summary(model.frwd.aic.quad)
+@
+<<FWD_AIC_QUAD_PRINT,echo=F>>=
+printCoefmat(model.frwd.aic.quad.sum$coef)
+@
+Adjusted R-squared:
+\Sexpr{round(model.frwd.aic.quad.sum$adj.r.squared,digits=2)}. Comparing the
+model with quadratic term to model without it results in significant difference
+with p-value \Sexpr{round(anova(model.frwd.aic.quad,model.frwd.aic)[["Pr(>F)"]][2],digits=3)}.
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FWD_AIC_3,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.frwd.aic.quad, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by Forward based on AIC criterion
+and with quadratic term on EG.GDP.PUSE.KO.PP.KD}
+\end{center}
+\end{figure}
+
+We see that it would be good to reomve Luxembourg because Cook's distance is bigger
+than one. After removing Luxembourg:
+		
+<<WD_AIC_QUAD_2,echo=F,cache=T,dependson=WD_AIC_QUAD;FUN>>=
+model.frwd.aic.quad<-lm(get_formula(model.frwd.aic.quad),kaggle.data,subset = country !="Luxembourg") 
+model.frwd.aic.quad.sum<-summary(model.frwd.aic.quad)	
+@
+
+<<FWD_AIC_2_PRINT_COEF,echo=F>>=
+printCoefmat(model.frwd.aic.quad.sum$coefficients)
+@
+		
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FWD_AIC_4,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.frwd.aic.quad, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Luxembourg"])
+@
+\caption{Diagnostic plots for model selected by Forward based on AIC criterion
+after adding quadratic term and removing Luxembourg}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.frwd.aic.quad.sum$adj.r.squared,digits=2)}. We see also now
+that there is no need to remove any more data.
+
+\subsection{Backward based on BIC criterion}
+The selected model:
+<<BACK_BIC,echo=F>>=
+model.bckwrd.bic <- step(model.full, direction = c("backward"), 
+		k=log(nrow(kaggle.data)), scope=list(lower=.~1),trace=0 )
+model.bckwrd.bic.sum <- summary(model.bckwrd.bic)
+printCoefmat(model.bckwrd.bic.sum$coef)
+@   
+is smaller than the one selected by AIC criterion because BIC more havily
+penalizes bigger models BIC = -2max loglikelihood + plog(n) (where log(n) in our
+case = \Sexpr{round(log(nrow(kaggle.data)),digits=2)}).
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_BACK_BIC,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.bckwrd.bic, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by Backward based on BIC criterion}
+\end{center}
+\end{figure}
+
+The final model is not significantly worse than
+the full model because p value of F statistic comparing this model to the full
+model equals
+\Sexpr{round(anova(model.full,model.bckwrd.bic)["Pr(>F)"][2,],digits=2)} so we should use the smaller model. Also the selected model explains data better then constant model because p value of F statistics comparing this model to the
+constant model equals 
+\Sexpr{sprintf("%0.3g", pf(model.bckwrd.bic.sum$fstatistic[1],model.bckwrd.bic.sum$fstatistic[2],model.bckwrd.bic.sum$fstatistic[3],lower.tail = FALSE))}.
+Adjusted R-squared:
+\Sexpr{round(model.bckwrd.bic.sum$adj.r.squared,digits=2)}.
+
+We see that it would be good to reomve Iceland because Cook's distance is bigger
+than one. After removing Icleland:
+
+<<BACK_BIC_2,echo=F,cache=T,dependson=BACK_BIC;FUN>>=
+model.bckwrd.bic<-lm(get_formula(model.bckwrd.bic),kaggle.data,subset = country != "Iceland")
+model.bckwrd.bic.sum<-summary(model.bckwrd.bic)	
+@
+<<BACK_BIC_2_PRINT_COEF>>=
+printCoefmat(model.bckwrd.bic.sum$coefficients)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_BACK_BIC_2,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.bckwrd.bic, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Iceland"])
+@
+\caption{Diagnostic plots for model selected by Backward based on BIC criterion after removing Iceland}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.bckwrd.bic.sum$adj.r.squared,digits=2)}. We see also now
+that there is no need to remove any more data.
+
+Checking if it would be beneficial to add quadratic terms:
+<<BACK_BIC_QUAD,echo=F,cache=T,dependson=BACK_BIC_2>>=
+model.bckwrd.bic.quad <- add_quadratic_for_each_predictor_and_check(model.bckwrd.bic)	
+@
+<<BACK_BIC_QUAD_PRINT,echo=F>>=
+	length(model.bckwrd.bic.quad)>0
+@
+
+\subsection{Forward based on BIC criterion}
+The selected model:
+<<FWD_BIC,echo=F>>=
+model.frwd.bic <- step(lm(Corruption.Index ~ 1,kaggle.data), direction = c("forward"), 
+		k=log(nrow(kaggle.data)), scope=list(upper=as.formula(paste(".~.+",paste(all.predictor.names,collapse = "+")))),trace=0)
+model.frwd.bic.sum <- summary(model.frwd.bic)
+printCoefmat(model.frwd.bic.sum$coef)
+@     
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FWD_BIC,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.frwd.bic, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by Forward based on BIC criterion}
+\end{center}
+\end{figure}
+
+The final model is not significantly worse than
+the full model because p value of F statistic comparing this model to the full
+model equals
+\Sexpr{round(anova(model.full,model.frwd.bic)["Pr(>F)"][2,],digits=2)} so we should use the smaller model. Also the selected model explains data better then constant model because p value of F statistics comparing this model to the
+constant model equals 
+\Sexpr{sprintf("%0.3g", pf(model.frwd.bic.sum$fstatistic[1],model.frwd.bic.sum$fstatistic[2],model.frwd.bic.sum$fstatistic[3],lower.tail = FALSE))}.
+
+We see that it would be good to reomve Iceland because Cook's distance is bigger
+than one. After removing Icleland:
+
+<<FWD_BIC_2,echo=F,cache=T,dependson=FWD_BIC;FUN>>=
+model.frwd.bic<-lm(get_formula(model.frwd.bic),kaggle.data,subset = country != "Iceland")
+model.frwd.bic.sum<-summary(model.frwd.bic)	
+@
+<<FWD_BIC_2_PRINT_COEF>>=
+printCoefmat(model.frwd.bic.sum$coefficients)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FWD_BIC_2,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.frwd.bic, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Iceland"])
+@
+\caption{Diagnostic plots for model selected by Forward based on BIC criterion after removing Iceland}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.frwd.bic.sum$adj.r.squared,digits=2)}. We see also now
+that there is no need to remove any more data.
+
+There is a benefit in adding quadratic term for EN.ATM.CO2E.P:
+<<FWD_BIC_QUAD,echo=F,cache=T,dependson=FWD_BIC_2>>=
+model.frwd.bic.quads <- add_quadratic_for_each_predictor_and_check(model.frwd.bic)
+model.frwd.bic.quad <- model.frwd.bic.quads[[1]]
+model.frwd.bic.quad.sum <- summary(model.frwd.bic.quad)
+@
+<<FWD_BIC_QUAD_PRINT,echo=F>>=
+printCoefmat(model.frwd.bic.quad.sum$coef)
+@
+Adjusted R-squared:
+\Sexpr{round(model.frwd.bic.quad.sum$adj.r.squared,digits=2)}. Comparing the
+model with quadratic term to model without it results in significant difference
+with p-value \Sexpr{round(anova(model.frwd.bic.quad,model.frwd.bic)[["Pr(>F)"]][2],digits=3)}.
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_FWD_BIC_QUAD,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.frwd.bic.quad, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Iceland"])
+@
+\caption{Diagnostic plots for model selected by Forward based on BIC criterion after removing Iceland
+and with quadratic term on EN.ATM.CO2E.P}
+\end{center}
+\end{figure}
+
+<<SELECT_BY_REGSUBSETS,cache=T,dependson=CLEAN_DATA,echo=F>>=
+#select variables using regsubsets using upto 31 variables, the out come will be used by r2 adjusted and cp criterion selection
+subsets <- regsubsets(Corruption.Index~.,kaggle.data[variable.names],nvmax=31)
+subsets.sum <- summary(subsets)
+@
+
+\subsection{Based on Adjusted R2 criterion}
+To select best model using $R^2$ we have to use adjusted $R^2$ becuase we have
+to take into considaration number of parameters in the model and not only how
+well model fits the data.
+
+\begin{figure}[H]
+\begin{center}
+<<FIG_ADJ_R2_PARAMS,fig=TRUE,height=2,width=5,echo=F>>=
+par(mar=c(2,2,1,1))
+plot(2:32,subsets.sum$adjr2,xlab="No. of Parameters", ylab="Adjusted R-squared")
+max.idx<-which.max(subsets.sum$adjr2)+1
+max.value<-subsets.sum$adjr2[which.max(subsets.sum$adjr2)]
+points(max.idx,max.value,col="blue",cex=2)
+text(max.idx,max.value,labels=c(paste("(",max.idx,",",round(max.value,digits=2),")")),pos=1,offset=1,col="blue")
+@
+\caption{Adjusted $R^2$ against number of model parameters in selected best
+model.}
+\end{center}
+\end{figure}
+
+<<ADJ_R2_VIS,fig=TRUE,height=8,width=12,echo=F,include=false>>=
+plot(subsets, scale="adjr2",cex.axis=0.1)
+@
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-ADJ_R2_VIS.pdf}
+\caption{Finding best model using adjusted $R^2$ critierion.}
+\end{center}
+\end{figure}
+
+Selected model with maximum adjusted $R^2$:
+<<ADJ_R2_MODEL,cache=T,dependson=SELECT_BY_REGSUBSETS,echo=F>>=
+adjR2.selected.variables <- all.predictor.names[subsets.sum$which[which.max(subsets.sum$adjr2),-1]]
+adjR2.formula <- as.formula(paste("Corruption.Index~",paste(adjR2.selected.variables,sep="",collapse="+"),sep=""))
+model.adjr2 <- lm(adjR2.formula,kaggle.data)
+model.adjr2.sum <- summary(model.adjr2)
+@
+<<ADJ_R2_MODEL_PRINT,echo=F>>=
+printCoefmat(model.adjr2.sum$coef)	
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_ADJ_R2_MODEL,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.adjr2, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by adjusted $R^2$ criterion}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.adjr2.sum$adj.r.squared,digits=2)}.
+
+There is a benefit in adding quadratic term for EG.GDP.PUSE.KO.PP:
+<<ADJ_R2_MODEL_CHECK_QUAD,echo=F,cache=T,dependson=ADJ_R2_MODEL>>=
+model.adjr2.quads <- add_quadratic_for_each_predictor_and_check(model.adjr2)	
+model.adjr2.quad <- model.adjr2.quads[[1]]
+model.adjr2.quad.sum <- summary(model.adjr2.quad)
+@
+<<ADJ_R2_MODEL_CHECK_QUAD_PRINT,echo=F>>=
+printCoefmat(model.adjr2.quad.sum$coef)
+@
+Adjusted R-squared:
+\Sexpr{round(model.adjr2.quad.sum$adj.r.squared,digits=2)}. Comparing the
+model with quadratic term to model without it results in significant difference
+with p-value \Sexpr{round(anova(model.adjr2.quad,model.adjr2)[["Pr(>F)"]][2],digits=3)}.
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_ADJ_R2_MODEL_CHECK_QUAD,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.adjr2.quad, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by adjusted $R^2$ criterion
+and with quadratic term on EG.GDP.PUSE.KO.PP}
+\end{center}
+\end{figure}
+
+We see that it would be good to reomve Luxembourg because Cook's distance is bigger
+than one. After removing Luxembourg:
+		
+<<ADJ_R2_MODEL_CHECK_QUAD_2,echo=F,cache=T,dependson=ADJ_R2_MODEL_CHECK_QUAD;FUN>>=
+model.adjr2.quad<-lm(get_formula(model.adjr2.quad),kaggle.data,subset = country !="Luxembourg") 
+model.adjr2.quad.sum<-summary(model.adjr2.quad)	
+@
+
+<<ADJ_R2_MODEL_CHECK_QUAD_2_PRINT_COEF,echo=F>>=
+printCoefmat(model.adjr2.quad.sum$coefficients)
+@
+		
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_ADJ_R2_MODEL_CHECK_QUAD_2,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.adjr2.quad, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Luxembourg"])
+@
+\caption{Diagnostic plots for model selected by adjusted $R^2$ criterion
+and with quadratic term on EG.GDP.PUSE.KO.PP and removing Luxembourg}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.adjr2.quad.sum$adj.r.squared,digits=2)}. We see also now
+that there is no need to remove any more data.
+
+\subsection{Based on $C_p$ criterion}
+Mallow's $C_p$ criterion selects model that should predict well i.e. it tries to
+minimize average mean sqare error. 
+
+<<CP_VIS,fig=TRUE,height=8,width=12,echo=F,include=false>>=
+plot (subsets, scale="Cp",cex.axis=0.1)
+@
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-CP_VIS.pdf}
+\caption{Finding best model using $C_p$ critierion.}
+\end{center}
+\end{figure}
+
+Checking $C_p$ with respect to number of parameters (A model with good fit
+should have $C_p$ around or less then p):
+\begin{figure}[H]
+\begin{center}
+<<FIG_CP_VS_PARAMS,fig=TRUE,height=2,width=5,echo=F>>=
+par(mar=c(2,2,1,1))
+plot(2:32,subsets.sum$cp,xlab="No. of Parameters", ylab="Cp Statistic",cex=0.5)
+min.idx<-which.min(subsets.sum$cp)
+min.value<-subsets.sum$cp[min.idx]
+points(min.idx+1,min.value,col="blue",cex=1)
+text(min.idx+1,min.value,labels=c(paste("(",min.idx+1,",",round(min.value,digits=2),")",sep="")),pos=3,col="blue")
+abline(0,1)
+@
+\caption{$C_p$ against number of model parameters.}
+\end{center}
+\end{figure}
+We see that the model with \Sexpr{min.idx} predictors (choosen by $C_p$ criterion) meets
+goodnes of fit requiremnt.
+
+Selected model with minimum $C_p$:
+<<CP_MODEL,cache=T,dependson=SELECT_BY_REGSUBSETS,echo=F>>=
+cp.selected.variables <- all.predictor.names[subsets.sum$which[which.min(subsets.sum$cp),-1]]
+cp.formula <- as.formula(paste("Corruption.Index~",paste(cp.selected.variables,sep="",collapse="+"),sep=""))
+model.cp <- lm(cp.formula,kaggle.data)
+model.cp.sum <- summary(model.cp)
+@
+<<CP_MODEL_PRINT,echo=F>>=
+printCoefmat(model.cp.sum$coef)	
+@
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_CP_MODEL,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.cp, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by $C_p$ criterion}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.cp.sum$adj.r.squared,digits=2)}.
+
+There is a benefit in adding quadratic term for EG.GDP.PUSE.KO.PP.KD:
+<<CP_MODEL_CHECK_QUAD,echo=F,cache=T,dependson=CP_MODEL>>=
+model.cp.quads <- add_quadratic_for_each_predictor_and_check(model.cp)	
+model.cp.quad <- model.cp.quads[[1]]
+model.cp.quad.sum <- summary(model.cp.quad)
+@
+<<CP_MODEL_CHECK_QUAD_PRINT,echo=F>>=
+printCoefmat(model.cp.quad.sum$coef)
+@
+Adjusted R-squared:
+\Sexpr{round(model.cp.quad.sum$adj.r.squared,digits=2)}. Comparing the
+model with quadratic term to model without it results in significant difference
+with p-value \Sexpr{round(anova(model.cp.quad,model.cp)[["Pr(>F)"]][2],digits=3)}.
+
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_CP_MODEL_CHECK_QUAD,fig=TRUE,height=5,width=7,echo=F>>=
+		op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.cp.quad, which=1:4,labels.id=kaggle.data$country)
+@
+\caption{Diagnostic plots for model selected by $C_p$ criterion
+and with quadratic term on EG.GDP.PUSE.KO.PP.KD}
+\end{center}
+\end{figure}
+
+We see that it would be good to reomve Luxembourg because Cook's distance is bigger
+than one. After removing Luxembourg:
+		
+<<CP_MODEL_CHECK_QUAD_2,echo=F,cache=T,dependson=CP_MODEL_CHECK_QUAD;FUN>>=
+model.cp.quad<-lm(get_formula(model.cp.quad),kaggle.data,subset = country !="Luxembourg") 
+model.cp.quad.sum<-summary(model.adjr2.quad)	
+@
+
+<<CP_MODEL_CHECK_QUAD_2_PRINT_COEF,echo=F>>=
+printCoefmat(model.cp.quad.sum$coefficients)
+@
+		
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_CP_MODEL_CHECK_QUAD_2,fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(model.cp.quad, which=1:4,labels.id=kaggle.data$country[kaggle.data$country!="Luxembourg"])
+@
+\caption{Diagnostic plots for model selected by $C_p$ criterion
+and with quadratic term on EG.GDP.PUSE.KO.PP.KD and removed Luxembourg}
+\end{center}
+\end{figure}
+Adjusted R-squared:
+\Sexpr{round(model.cp.quad.sum$adj.r.squared,digits=2)}. We see also now
+that there is no need to remove any more data.
+
+\section{Shrinkage methods}
+Methods in this section can be used to automatically select the predictors. 
+
+\subsection{Ridge regression}
+To choose biased estimate of the $\beta$ we can apply ridge regression which
+deals with collnerity of the predictors.
+
+<<RIDGE_MODEL,cache=T,dependson=CLEAN_DATA,echo=F>>=
+kaggle.data.centered<-as.data.frame(scale(kaggle.data[variable.names],scale = F, center = T))
+model.ridge<-lm.ridge(Corruption.Index~.,kaggle.data.centered[variable.names],lambda = seq(from=0,to=50,by=0.1))
+@
+
+Choose the best value of penalty parameter  using genralized crossvalidation:
+<<SELECT_RIDGE,echo=F>>=
+model.ridge.best.lambda <- model.ridge$lambda[which.min(model.ridge$GCV)]
+select(model.ridge)
+@
+
+<<RIDGE,fig=TRUE,height=12,width=10,echo=F,include=false>>=
+plot(model.ridge,xlab=expression(lambda),ylab=expression(hat(beta)))
+abline(v=model.ridge.best.lambda, col="blue")
+legend("topright", all.predictor.names, col = 1:length(all.predictor.names), lty = 1:length(all.predictor.names),cex=0.5)
+@
+\begin{figure}[H]
+\begin{center}
+\advance\rightskip-0.5cm
+\advance\leftskip-1cm
+\includegraphics[width=8.5in,height=11in]{figures/fig-RIDGE.pdf}
+\caption{fitted values of coefficients (bi) as a function of parameter $\lambda$
+with marked optimal lambda}
+\end{center}
+\end{figure}
+
+The impact of lambda on GCV can be visualized:
+\begin{figure}[H]
+\begin{center}
+<<GCV_LAMBDA,fig=TRUE,height=2,width=5,echo=F>>=
+par(mar=c(4,4,0,0))
+plot(model.ridge$lambda,model.ridge$GCV,xlab="lambda",ylab="GCV",type="l",cex=3)
+abline(v=model.ridge.best.lambda,col="blue")
+@
+\caption{GCV with respect to lmbda}
+\end{center}
+\end{figure}
+Coefficients of selected model:
+<<COEF_RIDGE,echo=F>>=
+coef(model.ridge)[which.min(model.ridge$GCV),]	
+@
+<<RIDGE_CROSS_VALID,echo=F,cache=T>>=
+	cross_validate_ridge<-function(){
+		sum_err_sq<-0
+		for(i in 1:nrow(kaggle.data)){	
+			model.cv<-lm.ridge(Corruption.Index~.,as.data.frame(scale(kaggle.data[-i,variable.names],scale=F,center = T)),lambda = seq(from=0,to=50,by=0.1))
+			idx<-which.min(model.cv$GCV)
+			predicted <- scale(kaggle.data[i,all.predictor.names],center=FALSE,scale=model.cv$scales) %*% model.cv$coef[,idx] + mean(kaggle.data$Corruption.Index[-i])
+			true.value <- kaggle.data[i,"Corruption.Index"] 
+			sum_err_sq <- sum_err_sq + (predicted-true.value)^2
+		}
+		return(sqrt(sum_err_sq/nrow(kaggle.data)))	
+	}
+	model.ridge.cv.rmse <- cross_validate_ridge()
+@
+RMSE computed using leave one out is
+\Sexpr{round(model.ridge.cv.rmse,digits=2)}. We see that biased estimator which
+decreases the variance of estimator increasing the bias can give worse results
+in terms of prediction compared to other methods.
+
+\subsection{LASSO regression}
+<<LASSO,echo=F,cache=T>>=
+x<-as.matrix(
+		kaggle.data[,all.predictor.names])
+y<-kaggle.data$Corruption.Index
+model.lasso<-lars(x,y,type="lasso")
+@
+\begin{figure}[H]
+\begin{center}
+<<FIG_LASSO,fig=TRUE,height=4,width=6,echo=F>>=
+par(mar = par("mar")/2)
+plot(model.lasso)
+legend("top", all.predictor.names, col=1:length(all.predictor.names),lty=1:length(all.predictor.names),cex=.2)
+@
+\caption{Visualization of the coefficients paths for LASSO}
+\end{center}
+\end{figure}
+
+Choosing the best subset of predictors in LASSO regresssion on the basis of
+Mallows Cp criterion
+
+\begin{figure}[H]
+\begin{center}
+<<FIG_CP_LASSO,fig=TRUE,height=4,width=5,echo=F>>=
+plot(model.lasso,breaks=FALSE,plottype="Cp")
+@
+\caption{Visualization of Cp for LASSO}
+\end{center}
+\end{figure}
+
+So to select the best coefficient based on $C_p$ criterium we select the set
+with the smallest $C_p$:
+<<SELECT_MIN_CP_LASSO>>=
+(lasso.coef.best.idx<-as.numeric(which.min(model.lasso$Cp)))
+@
+
+values of fitted coefficients (bi) in LASSO regression for
+the chosen model
+
+<<COEF_BEST_LASSO>>=
+model.lasso$beta[lasso.coef.best.idx,]	
+@
+
+Choosing best predictors in LASSO regresssion on the basis of
+crossvalidation:
+
+\begin{figure}[H]
+\begin{center}
+<<FIG_MSE_LASSO,fig=TRUE,height=4,width=5,echo=F>>=
+kaggle.cv.lars <-cv.lars(x,y,K=10,type="lasso")
+@
+\caption{Visualisation of CV MSE}
+\end{center}
+\end{figure}
+Getting coefficient for the minimum MSE:
+<<LASSO_COEF_MIN_MSE>>=
+frac<-kaggle.cv.lars$index[kaggle.cv.lars$cv==min(kaggle.cv.lars$cv)]	
+predict.lars(model.lasso, type="coefficients", mode="fraction", s=frac)$coef
+@
+
+\subsection{Robust regression: M-estimators and Least Trimmed Squares}
+Methods that deals with vialoted assumptions of the linear regression like
+outliers, heterscedacticity of variance, fatter tails of errors. These
+methods are usefull when automatic and quick model fitting is required or
+to compare to LS model for validation (If they differ the source of
+dissimilarity should be investigated). Here M-estimators apply the method with
+the Huber function.
+The M-estimators uses special function on residuals when minimizing sum of those (possibly different
+than quadratic like in case of the LS). The Least Trimmed Squares ignores the
+biggest residuals in the optimization process.  Both models are fitted using
+predictors selected by VIF method so we are not impacted by colinearity.  
+<<M_EST_LEAST_TRIMMED_SQ,echo=F>>=
+model.rlm<-rlm(vif.formula, kaggle.data[variable.names])
+model.lqs<-lqs(vif.formula, kaggle.data[variable.names],nsamp="best")
+@
+Comparing those coeffcients to the LS model allows us to check what is the
+influence of the remaining outliers:
+<<SHOW_M_EST_AND_LTS,echo=F>>=
+robust.coef<-cbind(model.vif$coefficients,model.rlm$coef,model.lqs$coef)
+colnames(robust.coef)<-c("VIF","M-est","LTS")
+robust.coef
+@
+As we can see in most of the cases the robust regression methods does not change
+coefficients considerably so we can conclude that outliers does not change model
+too much.
+
+\subsection{PCA}
+PCA tries to rotate model matrix into ortogonality hence simplifying testing and
+interpretation. I use prcomp function which should be more acurate than
+princomp (uses SVD).
+After performing PCA on kaggle data we obtain standard
+deviations for principal components:
+<<PCA,echo=F>>=
+#kaggle.pc<-princomp(kaggle.data[all.predictor.names],cor=T)
+#summary(kaggle.pc)
+kaggle.pc <- prcomp(kaggle.data[all.predictor.names],scale=T,center=T)
+@
+\begin{figure}[H]
+\begin{center}
+<<FIG_PCA,fig=TRUE,height=4,width=5,echo=F>>=
+plot(kaggle.pc$sdev,type="l",ylab="SD of PC",xlab="PC number")
+@
+\caption{Principal components' variance of kaggle data}
+\end{center}
+\end{figure}
+We see that first few components contain the majority of variation in the data.
+
+Visualizing 3 first componets as composition of orginal predictors:
+\begin{figure}[H]
+\begin{center}
+<<FIG_PCA_COMP,fig=TRUE,height=5,width=5,echo=F>>=
+matplot(1:31,kaggle.pc$rot[,1:3],type="l",xlab="Original predictors",ylab="weight")
+legend(x="topright",legend=c("Comp1","Comp2","Comp3"),col=c(1,2,3),lty=c(1,2,3))
+@
+\caption{3 first principal components as composition of original predicotrs.}
+\end{center}
+\end{figure}
+It can be seen that first 3 principal components somehow weigh orginal
+predictors in differeent ways but it is difficult to find the systematic pattern
+there. 
+
+PCA can also be used to discover extreme observations in the data. Getting the
+biggest value for the first component we can find entreme observation: 
+<<>>=
+#Extream observation
+extreme.idx<-which.max(kaggle.pc$x[,1])
+kaggle.data$country[extreme.idx]
+kaggle.data.scaled<-scale(kaggle.data[variable.names])
+kaggle.data.scaled[extreme.idx,]
+@
+
+\subsection{PCR}
+Principal component regression builds linear model based on the principal
+components computed like in the previous section. 
+<<PCR,echo=F,cache=T>>=
+kaggle.pcr <- pcr(Corruption.Index  ~ ., data = kaggle.data[variable.names],validation="LOO")
+kaggle.pcr.rmsep <- RMSEP(kaggle.pcr)
+pcr.cv.rmse <- as.numeric(kaggle.pcr.rmsep$val)[-c(1,2)][seq(from = 1, length.out=31,by=2)]
+pcr.min.cv <- which.min(pcr.cv.rmse)
+@
+Performance of this model can be checked by computing RMSE (I am using here
+leave one out crossvalidation) for models built from various number of most
+important components: 
+\begin{figure}[H]
+\begin{center}
+<<FIG_PCR,fig=TRUE,height=5,width=5,echo=F>>=
+validationplot(kaggle.pcr)
+@
+\caption{RMSEP $\sim$ number of componets using leave one out crossvalidation}
+\end{center}
+\end{figure}
+We see that the best performance is achieved for \Sexpr{pcr.min.cv} PCs with RMSE: 
+<<echo=F>>=	
+(pcr.cv.rmse.min <- pcr.cv.rmse[pcr.min.cv])
+@ 
+
+Visualising the components as the linear function of orginal predictors.
+\begin{figure}[H]
+\begin{center}
+<<FIG_PCR_COMPONENTS,fig=TRUE,height=6,width=5,echo=F>>=
+coefplot(kaggle.pcr,ncomp=1:pcr.min.cv,xlab="Orginal predidictors",ylab="Component weight")
+legend("bottomleft", paste("Comp",1:pcr.min.cv), col = 1:pcr.min.cv, lty = 1:pcr.min.cv,cex=0.7)
+@
+\caption{\Sexpr{pcr.min.cv} first PCR components as function of orginal
+predictors}
+\end{center}
+\end{figure}
+We can see that all components select similar orginal predictors but weigh them
+with different intensity.
+
+Checking if model doesn't violate OLS assumptions:
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_PCR,fig=TRUE,height=5,width=7,echo=F>>=
+par(mfrow=c(1,2))
+plot(kaggle.pcr$fitted.values[,,pcr.min.cv],resid(kaggle.pcr)[,,pcr.min.cv],ylab="residuals",xlab="fitted values")
+qqnorm(resid(kaggle.pcr)[,,pcr.min.cv],main="")
+qqline(resid(kaggle.pcr)[,,pcr.min.cv])
+@
+\caption{Diagnostic plots for PCR model with \Sexpr{pcr.min.cv} components}
+\end{center}
+\end{figure}
+We see that model is conformant with OLS assumptions like normal distribution of
+residuals, homogenous variance.
+
+\subsection{PLSR}
+Partial least squares regression is similar to PCR (builds predictors based on
+linear combination of original predictors) with one important difference that
+it uses information how predictors influence response variable (where PCR
+ignores this information).
+<<PLSR,echo=F,cache=T>>=
+kaggle.plsr <- plsr(Corruption.Index ~ ., data = kaggle.data[variable.names], validation="LOO")
+kaggle.plsr.rmsep <- RMSEP(kaggle.plsr)
+plsr.cv.rmse <- as.numeric(kaggle.plsr.rmsep$val)[-c(1,2)][seq(from = 1, length.out=31,by=2)]
+plsr.min.cv <- which.min(plsr.cv.rmse)
+@
+Performance of this model can be checked by computing RMSE (I am using here
+leave one out crossvalidation) for models built from various number of most
+important components: 
+\begin{figure}[H]
+\begin{center}
+<<FIG_PLSR,fig=TRUE,height=5,width=5,echo=F>>=
+validationplot(kaggle.plsr)
+@
+\caption{RMSEP $\sim$ number of componets}
+\end{center}
+\end{figure}
+
+We see that the best performance is achieved for \Sexpr{plsr.min.cv} components with RMSE: 
+<<echo=F>>=	
+(plsr.cv.rmse.min <- plsr.cv.rmse[plsr.min.cv])
+@
+So using PLSR allowed us to decrease number of predictors and error as well
+compared to PCR.
+
+Visualising the components as the linear function of orginal predictors.
+\begin{figure}[H]
+\begin{center}
+<<FIG_PLSR_PCA,fig=TRUE,height=6,width=5,echo=F>>=
+coefplot(kaggle.plsr,ncomp=1:11,xlab="Orginal predidictors",ylab="Component weight")
+legend("bottomleft", paste("Comp",1:11), col = 1:11, lty = 1:11, cex=0.8)
+@
+\caption{11 first PLSR components as function of orginal predictors}
+\end{center}
+\end{figure}
+We can see that all components select similar orginal predictors but weigh them
+with different intensity.
+
+Checking if model doesn't violate OLS assumptions:
+\begin{figure}[H]
+\begin{center}
+<<DIAGN_PLSR,fig=TRUE,height=5,width=7,echo=F>>=
+par(mfrow=c(1,2))
+plot(kaggle.plsr$fitted.values[,,plsr.min.cv],resid(kaggle.plsr)[,,plsr.min.cv],ylab="residuals",xlab="fitted values")
+qqnorm(resid(kaggle.plsr)[,,plsr.min.cv],main="",)
+qqline(resid(kaggle.plsr)[,,plsr.min.cv])
+@
+\caption{Diagnostic plots for PLSR model with \Sexpr{plsr.min.cv} components}
+\end{center}
+\end{figure}
+We see that model is conformant with OLS assumptions like normal distribution of
+residuals, homogenous variance.
+
+\section{Nonlinear regression}
+
+\subsection{Regression tree}
+<<RPART_CP,echo=F,cache=T>>=
+library(rpart)
+kaggle.rpart <- rpart(Corruption.Index ~ ., data = kaggle.data[variable.names])
+@
+<<RPART_CV,echo=F,cache=T,dependson=CLEAN_DATA>>=
+cross_validate_rpart <- function(){
+	sum_err_sq<-0
+	for(i in 1:nrow(kaggle.data)){	
+		kaggle.rpart.cv <- rpart(Corruption.Index ~ ., data = kaggle.data[-i,variable.names])		
+		true.value <- kaggle.data[i,"Corruption.Index"] 
+		predicted <- predict(kaggle.rpart.cv,kaggle.data[i,])
+		sum_err_sq <- sum_err_sq + (predicted-true.value)^2
+	}
+	return(sqrt(sum_err_sq/nrow(kaggle.data)))
+}
+@
+
+Tree having the minimum xerror (crossvalidated error: ratio of $R^{CV}(T)$ and
+SSE for root) has \Sexpr{which.min(kaggle.rpart$cptable[,"xerror"])-1} splits
+and coresponding SE=\Sexpr{round(kaggle.rpart$cptable[which.min(kaggle.rpart$cptable[,"xerror"]),"xstd"],digits=3)}:
+<<RPART_CP_PRINT,echo=F>>=
+printcp(kaggle.rpart)
+@
+The same selection process depicted graphically:
+\begin{figure}[H]
+\begin{center}
+<<RPART_TREE,fig=TRUE,height=6,width=5,echo=F>>=
+plotcp(kaggle.rpart)
+@
+\caption{Crossvalidated error as a function of number of splits}
+\end{center}
+\end{figure}
+
+Built tree:
+\begin{figure}[H]
+\begin{center}
+<<FIG_RPART_TREE,fig=TRUE,height=6,width=5,echo=F>>=
+plot(kaggle.rpart)
+text(kaggle.rpart,cex=0.5)
+@
+\caption{Regression tree}
+\end{center}
+\end{figure}
+
+\subsection{Moving average estimator of regression function}
+ Fitting models with different values of span, because only 4 predictors are
+ allowed:
+<<MOVING_AVG,echo=F>>=
+kaggle.mas<-list()
+for(s in seq(from=0.1,to=1,by=0.1)){
+	kaggle.mas[[as.character(s)]]<-loess(Corruption.Index~.,kaggle.data[c("FS.AST.PRVT.GD.ZS","IC.EXP.DURS","EG.USE.ELEC.KH.PC","IC.CRD.PRVT.ZS","Corruption.Index")],degree=0,span=s)
+	}
+@
+
+It can be seen that small values of smoothing parameter results in the model
+that tries to fits the data too closely and is over-fitted. 
+\begin{figure}[H]
+\begin{center}
+<<FIG_MOVING_AVG,fig=TRUE,height=5,width=7,echo=F>>=
+plot(kaggle.data$FS.AST.PRVT.GD.ZS,kaggle.data$Corruption.Index,xlab="FS.AST.PRVT.GD.ZS",ylab="Corruption.Index")
+colors<-1:length(kaggle.mas)
+idx<-0
+for(s in seq(from=0.1,to=1,by=0.1)){
+	idx<-idx+1
+	s.char<-as.character(s)
+	sorted_idx<-sort(kaggle.mas[[s.char]]$x[,"FS.AST.PRVT.GD.ZS"],index.return=T)$ix
+	lines(kaggle.mas[[s.char]]$x[,"FS.AST.PRVT.GD.ZS"][sorted_idx],kaggle.mas[[s.char]]$fitted[sorted_idx],
+			col=colors[idx])	
+}
+legend(x="bottomright",lty=c(-1,rep(1,length(kaggle.mas))),col=c(1,colors), 
+		legend=c("data",as.character(seq(from=0.1,to=1,by=0.1))),
+		pch = c(1,rep(-1,length(kaggle.mas))))
+@
+\caption{moving average model for different values of smoothing parameter}
+\end{center}
+\end{figure}
+
+\subsection{Local linear estimator of regression function}
+
+Fitting models with different values of span:
+<<LOC_LIN_EST,echo=F>>=
+kaggle.mas<-list()
+for(s in seq(from=0.1,to=1,by=0.1)){
+	kaggle.mas[[as.character(s)]]<-loess(Corruption.Index~.,kaggle.data[c("FS.AST.PRVT.GD.ZS","IC.EXP.DURS","EG.USE.ELEC.KH.PC","IC.CRD.PRVT.ZS","Corruption.Index")],degree=1,span=s)
+}
+@
+
+It can be seen that small values of smoothing parameter results in the model
+that tries to fits the data too closely and is over-fitted. 
+\begin{figure}[H]
+\begin{center}
+<<FIG_LOC_LIN_EST,fig=TRUE,height=5,width=7,echo=F>>=
+plot(kaggle.data$FS.AST.PRVT.GD.ZS,kaggle.data$Corruption.Index,xlab="FS.AST.PRVT.GD.ZS",ylab="Corruption.Index")
+colors<-1:length(kaggle.mas)
+idx<-0
+for(s in seq(from=0.1,to=1,by=0.1)){
+	idx<-idx+1
+	s.char<-as.character(s)
+	sorted_idx<-sort(kaggle.mas[[s.char]]$x[,"FS.AST.PRVT.GD.ZS"],index.return=T)$ix
+	lines(kaggle.mas[[s.char]]$x[,"FS.AST.PRVT.GD.ZS"][sorted_idx],kaggle.mas[[s.char]]$fitted[sorted_idx],
+			col=colors[idx])	
+}
+legend(x="bottomright",lty=c(-1,rep(1,length(kaggle.mas))),col=c(1,colors), 
+		legend=c("data",as.character(seq(from=0.1,to=1,by=0.1))),
+		pch = c(1,rep(-1,length(kaggle.mas))))
+@
+\caption{local quadratic estimator model for different values of smoothing parameter}
+\end{center}
+\end{figure}
+
+\subsection{Additive model}
+
+<<FORWARD_STEP_ADDITIVE_T_TEST,echo=F,cache=T,dependson=CLEAN_DATA>>=
+	forward_stepwise_additive_t_test<-function(){
+		remaining.vars<-all.predictor.names
+		selected.vars<-c()
+		while(T){
+			min.p.val<-NaN
+			min.p.val.idx<-NaN
+			for(i in 1:length(remaining.vars)){
+				s.name<-paste("s(",remaining.vars[i],")",sep="")
+				model.tmp<-gam(as.formula(paste("Corruption.Index~",paste(selected.vars,collapse = "+"),"+",s.name,sep="")),data=kaggle.data[variable.names])
+				model.tmp.sum<-summary(model.tmp)
+				if(is.nan(min.p.val) || model.tmp.sum$s.table[s.name,"p-value"]<min.p.val){
+					min.p.val<-	model.tmp.sum$s.table[s.name,"p-value"]
+					min.p.val.idx<-i
+				}
+			}
+			
+			if(!is.nan(min.p.val) && min.p.val<=0.1){	
+				s.name<-paste("s(",remaining.vars[min.p.val.idx],")",sep="")
+				model<-gam(as.formula(paste("Corruption.Index~",paste(selected.vars,collapse = "+"),"+",s.name,sep="")),data=kaggle.data[variable.names])
+				print(sprintf("Adding predictor %s with p.val %f",remaining.vars[min.p.val.idx], min.p.val))
+				remaining.vars<-remaining.vars[remaining.vars!=remaining.vars[min.p.val.idx]]
+				selected.vars<-c(selected.vars,s.name)
+				
+				if(length(selected.vars)>=8){
+					print(sprintf("Selected model:"))
+					summary(model)
+					break;
+				}
+			}else{
+				print(sprintf("Selected model:"))
+				summary(model)
+				break;
+			}
+		}
+		return(model)
+	}
+	model.additive<-forward_stepwise_additive_t_test()	
+@
+Selected additive model based on forward procedure with t-test: 
+<<SELECTED_ADDITIVE_MODEL>>=
+summary(model.additive)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<FIG_SELECTED_ADDITIVE_MODEL,fig=TRUE,height=10,width=7,echo=F>>=
+par(mfrow=c(3,3))
+plot(model.additive)
+@
+\caption{Plot of fuctions that constitute additive model}
+\end{center}
+\end{figure}
+
+\section{Prediction}
+The ultimate test for the model is the prediction of the out of sample data. I
+use United Kindom data from 2007 which is not included in the data set but its
+data can be found on Internet \cite{worldbankData}.Of course the model has been
+built from the data gathered in unknown year so we have to assume that the model
+is still valid in 2007 (Qualitative extrapolation \cite{Faraway}). Also checking
+model by predicting outcome variable that can be verified with real life data
+gives better feel of model quality than for example trying to explain the value
+of cooeficients \cite{Faraway}. 
+<<LOAD_GB,cache=T,echo=F>>=
+GB.2007.predictors<-WDI(country=c("GB"),indicator=all.predictor.names,start=2007,end=2007,extra=F)
+GB.2007.Corruption.Index<-34.1
+
+GB.2007.mah.distance <- sqrt(mahalanobis(GB.2007.predictors[,4:ncol(GB.2007.predictors)],colMeans(kaggle.data[all.predictor.names]),cov(kaggle.data[all.predictor.names])))
+observations.mah.distance <- apply(kaggle.data[all.predictor.names],1, function(case){sqrt(mahalanobis(case,colMeans(kaggle.data[all.predictor.names]),cov(kaggle.data[all.predictor.names])))})
+observations.mah.distance.mean<-mean(observations.mah.distance)
+observations.mah.distance.sd<-sd(observations.mah.distance)
+
+GB.pred.model.full<-predict(model.full,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.vif<-predict(model.vif,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.backward.t.test<-predict(model.backward.t.test,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.backward.t.test.quad<-predict(model.backward.t.test.quad,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.forward.t.test<-predict(model.forward.t.test,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.bckwrd.aic<-predict(model.bckwrd.aic,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.frwd.aic<-predict(model.frwd.aic,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.frwd.aic.quad<-predict(model.frwd.aic.quad,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.bckwrd.bic<-predict(model.bckwrd.bic,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.frwd.bic<-predict(model.frwd.bic,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.frwd.bic.quad<-predict(model.frwd.bic.quad,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.adjr2<-predict(model.adjr2,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.adjr2.quad<-predict(model.adjr2.quad,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.cp<-predict(model.cp,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.cp.quad<-predict(model.cp.quad,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.lasso<-predict(model.lasso,GB.2007.predictors[,4:ncol(GB.2007.predictors)],type=c("fit"))$fit[lasso.coef.best.idx]
+GB.pred.model.ridge <- scale(GB.2007.predictors[,4:ncol(GB.2007.predictors)],center = colMeans(kaggle.data[,all.predictor.names]) , scale = model.ridge$scales)%*% model.ridge$coef[,which.min(model.ridge$GCV)] + mean(kaggle.data$Corruption.Index) 
+GB.pred.model.rlm<-predict(model.rlm,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.lqs<-predict(model.lqs,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.additive<-predict(model.additive,GB.2007.predictors,interval=c("prediction"))
+GB.pred.model.pcr <- predict(kaggle.pcr, GB.2007.predictors)[,,pcr.min.cv]
+GB.pred.model.plsr <- predict(kaggle.plsr, GB.2007.predictors)[,,plsr.min.cv]
+GB.pred.model.rpart <- predict(kaggle.rpart,GB.2007.predictors)
+@
+The prediction quality also depends on the
+Mahalanobis distance of the new observation from the cases used to build the
+model which equals: \Sexpr{round(observations.mah.distance, digits=2)}. Because
+the mean value of observation distances from their center equals
+\Sexpr{round(observations.mah.distance.mean, digits=2)} and the standard
+deviation of those distances equals
+\Sexpr{round(observations.mah.distance.sd,digits=2)} we can predict the index for UK.
+The real value of Corruption.Index for UK is
+\Sexpr{GB.2007.Corruption.Index} \cite{failedIndex2007}.
+
+\begin{longtable}{ l | p{10cm} }
+\textbf{Model} & \textbf{Prediction} \\
+\hline 
+Full model &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.full,row.names=c("")))	
+@
+\\
+VIF model &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.vif,row.names=c("")))	
+@
+\\
+Backward t-test &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.backward.t.test,row.names=c("")))	
+@
+\\
+Backward t-test with quadratic term &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.backward.t.test.quad,row.names=c("")))	
+@
+\\
+Forward t-test &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.forward.t.test,row.names=c("")))	
+@
+\\
+Backward AIC &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.bckwrd.aic,row.names=c("")))	
+@
+\\
+Forward AIC &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.frwd.aic,row.names=c("")))	
+@
+\\
+Forward AIC with quadratic term&
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.frwd.aic.quad,row.names=c("")))	
+@
+\\
+Backward BIC &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.bckwrd.bic,row.names=c("")))	
+@
+\\
+Forward BIC &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.frwd.bic,row.names=c("")))	
+@
+\\
+Forward BIC with quadratic term&
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.frwd.bic.quad,row.names=c("")))	
+@
+\\
+Adjusted R2&
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.adjr2,row.names=c("")))	
+@
+\\
+Adjusted R2 with quadratic term&
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.adjr2.quad,row.names=c("")))	
+@
+\\
+Cp&
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.cp,row.names=c("")))	
+@
+\\
+Cp with quadratic term&
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.cp.quad,row.names=c("")))	
+@
+\\
+PCR&
+<<echo=F>>=
+cat(GB.pred.model.pcr)	
+@
+\\
+PLSR&
+<<echo=F>>=
+cat(GB.pred.model.plsr)		
+@
+\\
+Lasso &
+<<echo=F,results = tex,include=True>>=
+cat(GB.pred.model.lasso)	
+@
+\\
+Ridge &
+<<echo=F,results = tex,include=True>>=
+cat(GB.pred.model.ridge)	
+@
+\\
+Least trimmed squares &
+<<echo=F,results = tex,include=True>>=
+cat(GB.pred.model.lqs)	
+@
+\\
+M-estimator(Huber) &
+<<echo=F>>=
+print(as.data.frame(GB.pred.model.rlm,row.names=c("")))	
+@
+\\
+Regression tree &
+<<echo=F>>=
+cat(GB.pred.model.rpart)	
+@
+
+\\
+Additive &
+<<echo=F,results = tex,include=True>>=
+cat(GB.pred.model.additive)	
+@
+\\
+\caption{Prdicted index for United Kindom for different models}
+\end{longtable}
+
+We can see that predcting new values gives very wide intervals which contain the
+true value.
+
+\section{Crossvalidation and final model selection}\label{sec:cross} 
+I decided to select model based on leave one out crossvalidation to choose
+model with the best potential to predict index for new data. 
+Each model is recomputed with one observation left out (for each observation)
+and then RMSE (root mean square error is computed) of all models is calculated.
+I select model with the smallest crossvalidation RMSE.
+
+<<CROSS_VALID,cache=T,echo=F,dependson=CLEAN_DATA;FUN;FULL_MODEL;PRUNE_BY_VIF;BACK_EL_T_TEST_2;BACK_EL_T_TEST_QUAD;FORWARD_STEP_T_TEST_2;BACK_AIC;FWD_AIC;WD_AIC_QUAD_2;BACK_BIC_2;FWD_BIC_2;FWD_BIC_QUAD;ADJ_R2_MODEL;ADJ_R2_MODEL_CHECK_QUAD_2;CP_MODEL_CHECK_QUAD_2;CP_MODEL_CHECK_QUAD_2;RPART_CV>>=
+model.full.cv.rmse <- cross_validate(model.full)
+model.vif.cv.rmse <- cross_validate(model.vif)
+model.backward.t.test.cv.rmse <- cross_validate(model.backward.t.test)
+model.backward.t.test.quad.cv.rmse <- cross_validate(model.backward.t.test.quad)
+model.forward.t.test.cv.rmse <- cross_validate(model.forward.t.test)
+model.bckwrd.aic.cv.rmse <- cross_validate(model.bckwrd.aic)
+model.frwd.aic.cv.rmse <- cross_validate(model.frwd.aic)
+model.frwd.aic.quad.cv.rmse <- cross_validate(model.frwd.aic.quad)
+model.bckwrd.bic.cv.rmse <- cross_validate(model.bckwrd.bic)
+model.frwd.bic.cv.rmse <- cross_validate(model.frwd.bic)
+model.frwd.bic.quad.cv.rmse <- cross_validate(model.frwd.bic.quad)
+model.adjr2.cv.rmse <- cross_validate(model.adjr2)
+model.adjr2.quad.cv.rmse <- cross_validate(model.adjr2.quad)
+model.cp.cv.rmse <- cross_validate(model.cp)
+model.cp.quad.cv.rmse <- cross_validate(model.cp.quad)
+model.rpart.cv.rmse <- cross_validate_rpart()
+@
+
+
+\begin{longtable}{ l | p{10cm} }
+\textbf{Model} & \textbf{Prediction} \\
+\hline 
+Full model &
+<<echo=F>>=
+cat(model.full.cv.rmse)	
+@
+\\
+VIF model &
+<<echo=F>>=
+cat(model.vif.cv.rmse)	
+@
+\\
+Backward t-test &
+<<echo=F>>=
+cat(model.backward.t.test.cv.rmse)	
+@
+\\
+Backward t-test with quadratic term &
+<<echo=F>>=
+cat(model.backward.t.test.quad.cv.rmse)
+@
+\\
+Forward t-test &
+<<echo=F>>=
+cat(model.forward.t.test.cv.rmse)	
+@
+\\
+Backward AIC &
+<<echo=F>>=
+cat(model.bckwrd.aic.cv.rmse)
+@
+\\
+Forward AIC &
+<<echo=F>>=
+cat(model.frwd.aic.cv.rmse)	
+@
+\\
+Forward AIC with quadratic term&
+<<echo=F>>=
+cat(model.frwd.aic.quad.cv.rmse)
+@
+\\
+Backward BIC &
+<<echo=F>>=
+cat(model.bckwrd.bic.cv.rmse)
+@
+\\
+Forward BIC &
+<<echo=F>>=
+cat(model.frwd.bic.cv.rmse)	
+@
+\\
+Forward BIC with quadratic term&
+<<echo=F>>=
+cat(model.frwd.bic.quad.cv.rmse)	
+@
+\\
+Adjusted R2&
+<<echo=F>>=
+cat(model.adjr2.cv.rmse)
+@
+\\
+Adjusted R2 with quadratic term&
+<<echo=F>>=
+cat(model.adjr2.quad.cv.rmse)	
+@
+\\
+Cp&
+<<echo=F>>=
+cat(model.cp.cv.rmse)	
+@
+\\
+Cp with quadratic term&
+<<echo=F>>=
+cat(model.cp.quad.cv.rmse)	
+@
+\\
+Principal component regression&
+<<echo=F>>=
+cat(pcr.cv.rmse.min)	
+@
+\\
+Partial least squares regression&
+<<echo=F>>=
+cat(plsr.cv.rmse.min)	
+@
+\\
+Ridge regression&
+<<echo=F>>=
+cat(model.ridge.cv.rmse)	
+@
+\\
+Regression tree&
+<<echo=F>>=
+cat(model.rpart.cv.rmse)	
+@
+\\
+\caption{Leave one out crossvalidation RMSE for all models}
+\label{tab:cross_valid}
+\end{longtable}
+
+Besed on the Table-\ref{tab:cross_valid} I select model 
+obtainen by the Cp with quadratic term because of the smallest corss
+validation error. This model selection (based on Cp criterion) aims at
+choosing the best model for prediction tasks
+(selection procedure in this case minimizes average mean sqare error). The Cp
+model with quadratic term:
+
+<<echo=F>>=
+printCoefmat(model.cp.quad.sum$coef)	
+@
+
+\section{Summary}
+Models also fulfill explanatory function for the data.
+<<echo=F>>=
+renderModelVariables<-function(descr,model,model.sum){
+	cat(sprintf("%s&",descr))
+	for(var.name in all.predictor.names){
+		if(var.name %in% names(model$coefficients)){
+			sign<-model.sum$coefficients[var.name,"Pr(>|t|)"]<=0.05
+			cat(ifelse(sign,"\\textcolor{Red}{",""))			
+			cat(ifelse(model.full.sum$coefficients[var.name,"Estimate"]>0,"+","-"))
+			cat(ifelse(sign,"}",""))
+		}
+		cat(sprintf("&"))
+	}
+	cat(sprintf("%.3f&",model.sum$adj.r.squared))
+	cat(sprintf("%.3f \\\\",model.sum$sigma))
+}	
+@
+
+\vspace{8cm}
+
+\begingroup
+\begin{table}[H]
+\fontsize{7pt}{8pt}\selectfont
+\begin{center}
+  \advance\leftskip-0.5cm
+  \begin{tabular}{ l |
+<<SUM_HEADER_RENDER,echo=F, results = tex,include=True>>=
+cat(paste(rep("p{0.1cm}",length(all.predictor.names)),collapse=" "))
+@
+  p{0.5cm} p{0.5cm}}
+    \textbf{Method} &
+<<SUM_VAR_RENDER,echo=F, results = tex,include=True>>=
+for(var.name in all.predictor.names){
+	cat(sprintf("\\begin{rotate}{90} \\textbf{%s} \\end{rotate}&\n",var.name))
+}
+@   
+    \begin{rotate}{90} \textbf{Systematic part exmplained}\end{rotate}&
+    \begin{rotate}{90} \textbf{Sigma}\end{rotate}\\
+    \hline 
+    
+<<SUM_VAR_FULL_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Full model",model.full,model.full.sum)
+@    
+    
+<<SUM_VAR_VIF_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("VIF Backward",model.vif,model.vif.sum)
+@    
+    
+<<SUM_VAR_BCK_T_TEST_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Backward t-test",model.backward.t.test,model.backward.t.test.sum)
+@
+    
+<<SUM_VAR_FWD_T_TEST_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Forward t-test",model.forward.t.test,model.forward.t.test.sum)
+@
+
+<<SUM_VAR_BCK_AIC_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Backward AIC",model.bckwrd.aic,model.bckwrd.aic.sum)
+@
+
+<<SUM_VAR_FWD_AIC_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Forward AIC",model.frwd.aic,model.frwd.aic.sum)
+@
+
+<<SUM_VAR_BCK_BIC_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Backward BIC",model.bckwrd.bic,model.bckwrd.bic.sum)
+@
+
+<<SUM_VAR_FWD_BIC_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Forward BIC",model.frwd.bic,model.frwd.bic.sum)
+@
+
+<<SUM_VAR_ADJ_R2_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Adj R2",model.adjr2,model.adjr2.sum)
+@
+
+<<SUM_VAR_ADJ_R2_RENDER,echo=F, results = tex,include=True>>=
+renderModelVariables("Cp",model.cp,model.cp.sum)
+@
+
+    
+ \end{tabular}
+ \caption{Models and selected predictors. "+" means that cooeficient in the
+ model is positive and "-" means the cooeficient is negative. Lack of sign means
+ that predictor is not used in the model. Red color means that coefficient is
+ significant.}
+ \end{center}
+ \end{table}
+ 
+We can see from the table how particular predictors influence the
+Corruption.Index (holding all other predictors constant). Of course there is a
+danger of lurking variables and we cannot make strong conclusions but we can at
+least try to discover some trends:
+\begin{itemize}
+  \item AG.LND.AGRI.K2 positively influences Corruption.Index so we can assume
+  that more agricultural land then country could be more corrupted.
+  \item AG.LND.ARBL.HA.PC negativel influences Corruption.Index so we can assume
+  that more arable land per person then country could be less corrupted
+  \item AG.YLD.CREL.KG negatively influences Corruption.Index so we can assume
+  that more Cereal yield then country could be less corrupted (better
+  efficiency)
+  \item BM.GSR.TRVL.ZS positively influences Corruption.Index so we can assume
+  that if country has more turism as share of its economy then country could be
+  more corrupted. (southern european countries)
+  \item BX.KLT.DINV.WD.GD.ZS positively influences Corruption.Index so we can assume
+  that bigger foreign direct investment as share of its economy then country
+  could be more corrupted. (looks like coruption helps direct investment?)
+  \item EG.GDP.PUSE.KO.PP negatively influences Corruption.Index so we can
+  assume that more GDP per unit of energy use then country could be less corrupted 
+  (more corrupted countries have less energy hungry economies).
+  \item EG.USE.ELEC.KH.PC negatively influences Corruption.Index so we can
+  assume that more electric power consumption per capita then country could be less
+  corrupted (more corrupted countries have less energy hungry economies)
+  \item EN.ATM.CO2E.PC CO2 negatively influences Corruption.Index so we can
+  assume that bigger emissions per capita the country could be less corrupted 
+  (more corrupted countries have less energy hungry economies)
+  \item EN.ATM.PM10.MC.M3 positively influences Corruption.Index so we can assume
+  the bigger polution the country could be more corrupted.
+  \item IC.CRD.PRVT.ZS negatively influences Corruption.Index so we can
+  assume the more state information on business the country could be less corrupted 
+  \item IC.EXP.DURS positively influences Corruption.Index so we can assume the
+  more time to export the country could be more corrupted 
+  \item NE.TRD.GNFS.ZS negatively influences Corruption.Index so we can assume
+  the more trade as proportion of GDP the country could be less corrupted
+\end{itemize}
+We can see that all those assosiations make logical sense.
+
+\section{Methods that failed}
+Here I note the methods that I tried but haven't imroved the model
+\begin{itemize}
+  \item Taking log of predictor which is right skewed
+\end{itemize}
+ 
+\begin{thebibliography}{9}
+  \bibitem{failedIndex2007}
+  \url{http://ffp.statesindex.org/rankings-2007-sortable} Corruption index 2007
+  \bibitem{worldbankData}
+  \url{http://data.worldbank.org/} Worldbank data
+  \bibitem{Faraway} Julian J. Faraway "Linear Models with R"
+  \bibitem{WikiFailedStatesIndex}
+  \url{http://en.wikipedia.org/wiki/List_of_countries_by_Failed_States_Index}
+\end{thebibliography}
+\end{document}

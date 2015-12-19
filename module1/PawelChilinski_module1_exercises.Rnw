@@ -1,0 +1,266 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+
+\usepackage{titlesec}% http://ctan.org/pkg/titlesec
+\titleformat{\section}%
+  [hang]% <shape>
+  {\normalfont\bfseries\Large}% <format>
+  {}% <label>
+  {0pt}% <sep>
+  {}% <before code>
+\renewcommand{\thesection}{}% Remove section references...
+\renewcommand{\thesubsection}{\arabic{subsection}}%... from subsections
+
+\title{Module 1 - Basic Probability and Statistics}
+\author{Pawel Chilinski}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+<<SETTINGS,cache=true,echo=false,results=hide>>=
+options(width = 60)
+test_repeat<-30
+@ 
+\maketitle
+\section{Part 1 - Probability}
+
+\subsection{Find a distribition function $F_x(x) = P(X \leq x)$, $x \in R$ of
+random variable X.}
+
+\includegraphics{car.png}
+
+X - random variable equal to a number of times the driver had to stop on his way
+due to red light in crossroads.
+\\
+
+$P(X=0)=\frac{1}{3}\cdot\frac{1}{2}\cdot\frac{2}{3}=\frac{1}{9}$
+\\
+
+$P(X=1)=\frac{2}{3}\cdot\frac{1}{2}\cdot\frac{2}{3}+\frac{1}{3}\cdot\frac{1}{2}\cdot\frac{2}{3}+\frac{1}{3}\cdot\frac{1}{2}\cdot\frac{1}{3}
+=\frac{7}{18}$
+\\
+
+$P(X=2)=\frac{2}{3}\cdot\frac{1}{2}\cdot\frac{2}{3}+\frac{1}{3}\cdot\frac{1}{2}\cdot\frac{1}{3}+\frac{2}{3}\cdot\frac{1}{2}\cdot\frac{1}{3}=
+\frac{7}{18}$
+\\
+
+$P(X=3)=\frac{2}{3}\cdot\frac{1}{2}\cdot\frac{1}{3}=\frac{1}{9}$
+
+\[ F_x(x) = \left\{ 
+  \begin{array}{l l}
+    0 \quad x<0\\
+    1/_9 \quad 0\leq x <1\\
+    1/_2 \quad 1\leq x <2\\
+    8/_9 \quad 2\leq x <3\\
+    1 \quad 3\leq x}
+  \end{array} \right\]
+  
+\subsection{Find the probability that a person randomly chosen from the
+population has IQ}
+
+\begin{enumerate}[label=\emph{\alph*})]
+\item  above 130
+<<>>=
+1-pnorm(130,mean=100,sd=15)	
+@
+\item between 100 and 120
+<<>>=
+pnorm(120,mean=100,sd=15)-pnorm(100,mean=100,sd=15)
+@
+\end{enumerate}
+
+\subsection{A pair of random variables (X, Y) has a joint discrete distribution}
+
+\begin{enumerate}[label=\emph{\alph*})]
+\item  marginal distributions
+\begin{table}[H]
+\begin{center}
+  \begin{tabular}{ l | l l l | l}
+    X\textbackslash Y & -1 & 0 & 1 & \textcolor{Emerald}{$p_x$} \\ \hline
+    0 & 0.1 & 0.1 & 0 & \textcolor{Emerald}{0.2}\\
+    1 & 0.2 & 0.2 & 0.1 & \textcolor{Emerald}{0.5}\\
+    2 & 0.1 & 0.1 & 0.1 & \textcolor{Emerald}{0.3}\\
+    \hline
+    \textcolor{blue}{$p_y$} & \textcolor{blue}{0.4} & \textcolor{blue}{0.4} &
+    \textcolor{blue}{0.2} & \\
+  \end{tabular}
+\end{center}
+\end{table}
+\item Calculate P(X > 2Y)
+\\
+
+P(X=x, Y=y) := P(x,y)
+\\
+
+P(X > 2Y)=P(0,-1)+P(1,-1)+P(1,0)+P(2,-1)+P(2,0)=0.1+0.2+0.2+0.1+0.1=0.7
+\\
+
+\item Are random variables X and Y independent? Calculate Cov(X,Y) and Cor(X,Y)
+\\
+
+They are not independent because $P(0,-1)=0.1 \neq P(X=0)\cdot P(Y=-1)=0.2\cdot 0.4 = 0.08$
+\\
+
+<<>>=
+EX <- 0.2 * 0 + 0.5 * 1 + 0.3 * 2
+EX
+EY <- 0.4 * -1 + 0.4 * 0 + 0.2 * 1
+EY
+E_XY <- 0.2 * 1 * -1 + 0.1 * 1 * 1 + 0.1 * 2 * -1 + 0.1 * 2 * 1
+E_XY
+var_X <- 0.2*(0-EX)^2 + 0.5*(1-EX)^2 + 0.3*(2-EX)^2
+var_X
+var_Y <- 0.4*(-1-EY)^2 + 0.4*(0-EY)^2 + 0.2*(1-EY)^2
+var_Y
+cov_XY <- E_XY-EX*EY
+cov_XY
+cor_XY <- cov_XY/sqrt(var_X*var_Y)
+cor_XY
+@
+\item Find conditional distribution
+\\
+
+$P(X|Y=-1)=\frac{P(X,Y=-1)}{P(Y=-1)}$
+\begin{table}[H]
+\begin{center}
+  \begin{tabular}{ l | l l l}
+    X|Y=-1 & 0 & 1 & 2 \\ \hline
+      &   &   &   \\
+      & $\frac{0.1}{0.4}$ & $\frac{0.2}{0.4}$ & $\frac{0.1}{0.4}$ \\ 
+  \end{tabular}
+  \quad
+  =
+  \quad
+  \begin{tabular}{ l | l l l}
+    X|Y=-1 & 0 & 1 & 2 \\ \hline
+      & 0.25 & 0.5 & 0.25 \\ 
+  \end{tabular}
+\end{center}
+\end{table}
+\\
+
+$P(Y|X=0)=\frac{P(Y,X=0)}{P(X=0)}$
+\begin{table}[H]
+\begin{center}
+  \begin{tabular}{ l | l l l}
+    Y|X=0 & -1 & 0 & 1 \\ \hline
+      &   &   &   \\
+      & $\frac{0.1}{0.2}$ & $\frac{0.1}{0.2}$ & $\frac{0}{0.2}$ \\ 
+  \end{tabular}
+  \quad
+  =
+  \quad
+  \begin{tabular}{ l | l l l}
+    Y|X=0 & -1 & 0 & 1 \\ \hline
+      & 0.5 & 0.5 & 0 \\ 
+  \end{tabular}
+\end{center}
+\end{table}
+\end{enumerate}
+
+\subsection{Using central limit theorem find an approximate distribution of the time in which a cyclist covers 50km of the route}
+<<echo=F>>=
+var_cycle<-round((1.8-1.4)^2/12,digits=4)	
+@
+\\
+
+The expected value of the time that cyclist needs to complete 1km is:
+$EX=\frac{1.4+1.8}{2}=1.6$ min
+\\
+The variance of the time that cyclist needs to complete 1km is:
+$\sigma_{x}^2=\frac{(1.8-1.4)^2}{12}=$ \Sexpr{var_cycle} 
+\\
+
+So according to CLT the we can model the time needed to complete 50 km route by
+normal distribution
+N(50\cdot1.6,50\cdot\Sexpr{var_cycle})=N(\Sexpr{50*1.6},\Sexpr{50*var_cycle}).
+
+\section{Part 2 - Statistics}
+\setcounter{subsection}{4}
+\subsection{Find 95\% confidence interval for the expected value of a textbook
+price}
+\\
+
+Because $\frac{\bar{P_n} - \mu}{\frac{\sigma}{\sqrt{n}}}  \sim N(0,1)$ then
+<<>>=
+mu_p <- 28.4
+sd_p <- 4.75
+n <- 50
+conf_interval_0_95 <- c(mu_p-qnorm(0.975)*sd_p/sqrt(n) , mu_p + qnorm(0.975)*sd_p/sqrt(n))
+conf_interval_0_95
+@
+\\
+
+\subsection{Perform a statistical test to validate their hypothesis, with significance level equal to 0.05.}
+\\
+
+$H_0 : fraction = 0.25$
+\\
+$H_1 : fraction \neq 0.25$ 
+\\
+
+Here we deal with example of binomial distribution. And we standardize fraction
+assuming $H_0$ holds: 
+<<>>=
+n <- 400
+frac_est <- 79/400
+frac_0 <- 0.25
+frac_standardized <- (p_est-p_0)/sqrt(p_est*(1-p_est)/n)
+frac_standardized
+@
+and critical region for standardized fraction is:
+<<>>=
+left_critical_region <- c(-Inf, qnorm(0.025))
+left_critical_region
+@
+$\bigcup$
+<<>>=
+right_critical_region <- c(qnorm(0.975),Inf)
+right_critical_region
+@
+So we have to reject $H_0$ because standardized value falls into critical
+region:
+<<>>=
+frac_standardized > left_critical_region[1] & frac_standardized < left_critical_region[2]
+@
+\\
+
+\subsection{Test the hypothesis that the factual mean value of the lenses does not meet the requirements, with significance level equal to 0.05.}
+\\
+
+$H_0 : fraction = 3.2$
+\\
+$H_1 : fraction \neq 3.2$ 
+\\
+
+Here we deal with example with unknon standard deviation: 
+<<>>=
+n <- 50
+w_est <- 3.05
+w_0 <- 3.2
+SE <- 0.34
+w_standardized <- (w_est-w_0)/SE
+w_standardized
+@
+so to compute critical region we are using t-distribution:
+<<>>=
+left_critical_region <- c(-Inf, qt(0.025,n-1))
+left_critical_region
+@
+$\bigcup$
+<<>>=
+right_critical_region <- c(qt(0.975,n-1),Inf)
+right_critical_region
+@
+so the standardized value is not in the critical region 
+<<>>=
+(w_standardized > left_critical_region[1] & w_standardized < left_critical_region[2]) |
+		(w_standardized > right_critical_region[1] & w_standardized < right_critical_region[2])
+@
+so we do not reject the $H_0$ that the factual mean equals required value.
+\end{document}

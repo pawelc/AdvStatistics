@@ -1,0 +1,367 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+
+\usepackage{titlesec}% http://ctan.org/pkg/titlesec
+\titleformat{\section}%
+  [hang]% <shape>
+  {\normalfont\bfseries\Large}% <format>
+  {}% <label>
+  {0pt}% <sep>
+  {}% <before code>
+\renewcommand{\thesection}{}% Remove section references...
+\renewcommand{\thesubsection}{}%... from subsections
+
+\title{Module 6 - Logistic regression. Poisson regression. Log-linear models.}
+\author{Pawel Chilinski}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+\maketitle
+\subsection{Exercise 1.} Data set kyphosis in library rpart represents data on
+children who have had corrective spinal surgery. The data contains the following
+columns:\\
+Kyphosis - a factor with levels: absent, present, indicating if a kyphosis (a type of deformation) was
+present after the operation,\\
+Age - age in months,\\
+Number - the number of vertebrae involved,\\
+Start - the number of the first (topmost) vertebra operated on.\\
+<<>>=
+library(rpart)	
+data(kyphosis)
+@
+\begin{itemize}
+\item Fit a logistic regression model to explain how probability of presence of kyphosis depends on variables Age, Number and Start.
+<<>>=
+kyphosis.lr.model <- glm(Kyphosis~Age+Number+Start,data = kyphosis,family = "binomial")	
+summary(kyphosis.lr.model)
+#Converting coefficients to odds ratio:
+exp(kyphosis.lr.model$coefficients)
+@
+So we can see that Number is the biggest factor increasing probability of
+kyphosis (not significant at 0.05 critical value), then increase in Age
+increases slightly probability of kyphosis and increase in Start decreases this probability.
+
+\item What are the calculated null deviance and residual deviance for this
+model? What are their asymptotic distributions and what conditions are needed for them to hold?
+
+Calculated null deviance and residual deviance:
+<<>>=
+kyphosis.lr.model$null.deviance
+kyphosis.lr.model$deviance
+@
+
+The asymptotic distribution of deviances is chi-squared with n-p degrees of
+freedom (because deviance is calculated from the saturated model with n
+parameters).\\
+Null deviance df is:
+<<>>=
+kyphosis.lr.model$df.null
+#which is the same as (n-1, because for null model we have 1 parameter)
+nrow(kyphosis)-1
+@
+Residual deviance df is:
+<<>>=
+kyphosis.lr.model$df.residual
+#which is the same as (n-4, because for model we have 4 parameters)
+nrow(kyphosis)-4
+@
+The chi-squared are asymptotic distributions provided model (null or fitted by
+us) is adequate (does not differ significantly from the saturated model) and we
+have large sample.
+
+\item Perform likelihood ratio test to decide whether any of the predictors is
+significant in the model.
+
+<<>>=
+1-pchisq(kyphosis.lr.model$null.deviance-kyphosis.lr.model$deviance,4)	
+@
+So we can see that null model is not adequate and we can reject hypothesis
+(with critical value of 0.05) that all predictors are insignificant (so model
+contains some significant predictor(s)).
+
+\item Can we perform a goodness of fit test to check adequacy of the model?
+
+We cannot perform a goodness of fit test because we do not have more than one
+observation for every object in the data set.
+
+\item Calculate the proportion of explained deviance for this model
+
+<<>>=
+1-kyphosis.lr.model$deviance/kyphosis.lr.model$null.deviance	
+@
+So we can see that only 26\% of the deviance is explained by this
+model.
+
+\item One of the methods of proving inadequacy of a model for individual
+observations is to fit a larger model and perform likelihood ratio test to
+compare these two models. Enlarge the initial model with squared predictors and compare values of residual deviances, 
+proportions of explained deviance and AIC for these two models. What is the result of LRT test?
+
+Fitting larger model:
+<<>>=
+kyphosis.lr.model.squares <- glm(Kyphosis~Age+Number+Start+I(Age^2)+I(Number^2)+I(Start^2),
+		data = kyphosis,family = "binomial")	
+1-pchisq(kyphosis.lr.model$deviance-kyphosis.lr.model.squares$deviance,3)
+@
+We can conclude (using 0.05 critical value) that adding squares of predictors
+significantly improves the model (result of LRT test).
+
+Explained deviance for the bigger model:
+<<>>=
+1-kyphosis.lr.model.squares$deviance/kyphosis.lr.model.squares$null.deviance	
+@
+The explained deviance increased to 42\%.
+
+Comparing AIC values:
+<<>>=
+kyphosis.lr.model$aic
+kyphosis.lr.model.squares$aic
+@
+Akaike Information Criterion is smaller for the bigger model.
+
+All above tests vote in favour of the bigger model.
+
+\item Choose the best subset of predictors using:
+\begin{itemize}
+\item AIC criterion
+<<>>=
+step(glm(Kyphosis~1,data = kyphosis,family = "binomial"), direction = c("forward"), k=2, 
+		scope=list(upper=.~.+Age+Number+Start+I(Age^2)+I(Number^2)+I(Start^2)))	
+@
+So the sub-model selected based on AIC criterion is Kyphosis $\sim$
+I(Start$^2$) + Age + I(Age$^2$) + Start
+
+\item likelihood ratio test (LRT). Use function step(model,test="Chisq")
+<<>>=
+step(glm(Kyphosis~Age+Number+Start+I(Age^2)+I(Number^2)+I(Start^2),data = kyphosis,
+				family = "binomial"), direction = c("backward"),  
+				scope=list(upper=.~1),test="Chisq")	
+@
+So this method gives the same result as the one based on AIC criterion.
+So model selected based on AIC and LRT:
+<<>>=
+kyphosis.lr.model.selected<-glm(Kyphosis~Age+Start+I(Age^2)+I(Start^2),
+		data = kyphosis,family = "binomial")		
+@
+
+\item Compare values of residual deviances, proportions of explained deviance
+and AIC for the initial and resulting two models.
+
+By selecting the model based on AIC and LRT:\\
+Residual deviance decreased from 61 to 51:
+<<>>=
+kyphosis.lr.model$deviance
+kyphosis.lr.model.selected$deviance
+@
+Proportions of explained deviance increased from 26\% to 38\%:
+<<>>=
+1-kyphosis.lr.model$deviance/kyphosis.lr.model$null.deviance
+1-kyphosis.lr.model.selected$deviance/kyphosis.lr.model.selected$null.deviance
+@
+AIC criterion decreased from 69 to 61:
+<<>>=
+kyphosis.lr.model$aic
+kyphosis.lr.model.selected$aic
+@
+\end{itemize}
+\item What is the estimated probability of presence of kyphosis for a child which is
+20 months old and for which variable Start is equal to 10?
+
+The probability is 13\%:
+<<>>=
+predict(kyphosis.lr.model.selected,data.frame(Age=20,Start=10),type="response")
+@
+\end{itemize}
+
+\subsection{Exercise 2.} The data set Brands.txt contains information on 735
+subjects who were asked their preference on three brands of some product (e.g.,
+car or TV). Included in the data set are the following variables:\\
+brand - number of a preferred brand (one of three),\\ 
+female - coded as 0 for male and 1 for female,\\ 
+age - subject's age.
+<<>>=
+brands <- read.table(file="Brands.txt",header=T)	
+@
+Our goal is to associate the brand choices with age and gender. We assume the
+following relationship between probabilities ratio and our predictor variables
+female and age:\\
+logit(P (brand = 2)/P (brand = 1)) = $\beta_{10}$ + $\beta_{11}$ female +
+$\beta_{12}$ age, \\ 
+logit(P (brand = 3)/P (brand = 1)) = $\beta_{20}$ + $\beta_{21}$ female +
+$\beta_{22}$ age.
+\begin{itemize}
+\item Fit a multinomial logit model to the data. Use function multinom().
+<<>>=
+library(nnet)
+brand.mn.model<-multinom(brand~female+age,data=brands)
+@
+\item Interpret fitted coefficients.
+Coefficients as odds ratios:
+<<>>=
+exp(coef(brand.mn.model))
+@
+$\beta_{11} = 1.688465$ means that one unit of change in female will multiply
+the odds of the of the brand = 2 (compared to the brand = 1) by 1.688465\\
+$\beta_{12} = 1.445142$ means that one unit of change in age will multiply
+the odds of the of the brand = 2 (compared to the brand = 1) by 1.445142\\
+$\beta_{21} = 1.593525$ means that one unit of change in female will multiply
+the odds of the of the brand = 3 (compared to the brand = 1) by 1.593525\\
+$\beta_{22} = 1.985575$ means that one unit of change in age will multiply
+the odds of the of the brand = 3 (compared to the brand = 1) by 1.985575\\
+$\beta_{10} and \beta_{20}$ are increase in odds for brand = 2 and 3 relative to
+brand = 1 when age and female are 0.
+\item Calculate predicted probabilities of preference for every brand for a group of 15 males and 15 females aged between 24 and 38 (by 1 year) 
+(i.e. age=rep(24:38,2), female=c(rep(0,15),rep(1,15))).
+Plot predicted probabilities as a function of age (one plot for each gender) for each brand separately.
+
+Probabilities:
+<<>>=
+(probs<-predict(brand.mn.model,data.frame(age=rep(24:38,2),female=c(rep(0,15),rep(1,15))),type="probs"))	
+@
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+par(mfrow=c(2,3))
+plot(24:38,probs[1:15,1],main="Female=0,brand=1",xlab="age",ylab="Pr")
+plot(24:38,probs[1:15,2],main="Female=0,brand=2",xlab="age",ylab="Pr")
+plot(24:38,probs[1:15,3],main="Female=0,brand=3",xlab="age",ylab="Pr")
+plot(24:38,probs[16:30,1],main="Female=1,brand=1",xlab="age",ylab="Pr")
+plot(24:38,probs[16:30,2],main="Female=1,brand=2",xlab="age",ylab="Pr")
+plot(24:38,probs[16:30,3],main="Female=1,brand=3",xlab="age",ylab="Pr")
+@
+\caption{Probabilities as a function of age (one plot for each gender) for each
+brand separately}
+\end{center}
+\end{figure}
+\end{itemize}
+
+\subsection{Exercise 3.} (Poisson regression) Data set discoveries in base package in R contains numbers of great discoveries in a given year within years 1860-1959. 
+We assume that the number Yi of great discoveries in each year is a random
+variable pertaining to Poisson distribution: Yi $\sim$ Poiss($\mu_i$). We are
+interested in deciding whether the mean value of discoveries is constant in time.
+<<>>=
+data(discoveries)	
+@
+\begin{itemize}
+\item Plot the data.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+plot(1860:1959,discoveries,ylab="discoveries",xlab="year")
+@
+\caption{Great discoveries 1860-1959}
+\end{center}
+\end{figure}
+
+\item Calculate the mean value of discoveries in the whole considered period.
+<<>>=
+mean(discoveries)	
+@
+\item Fit a poisson regression model taking constant value as the predictor:
+glm(discoveries$\sim$1,poisson).
+<<>>=
+(discoveries.poisson.model.const <- glm(discoveries~1,family = "poisson"))	
+@
+\item Perform a goodness-of-fit test (based on residual deviance) of this model.
+<<>>=
+1-pchisq(discoveries.poisson.model.const$deviance,length(discoveries)-1)	
+@
+So the model is not adequate and we can conclude that mean value of discoveries
+is not constant in time.
+We can compare the result to the Pearson $X^2$ statistic:
+<<>>=
+(X_square<-sum((discoveries-discoveries.poisson.model.const$fitted.values)^2/
+							discoveries.poisson.model.const$fitted.values))
+1-pchisq(X_square,length(discoveries)-1)	
+@
+And again we receive the same result.
+\item A different way to check adequacy of this model is fitting a larger model
+and performing a comparison:
+\begin{itemize}
+\item fit a quadratic model taking year and year$^2$ as predictors
+<<>>=
+(discoveries.poisson.model.quad <- glm(discoveries~years+I(years^2),family = "poisson",
+					data = data.frame(discoveries=discoveries,years=1:100)))
+@
+\item perform a likelihood ratio test to compare these two models. Is the larger
+model better fitted than the smaller one?
+<<>>=
+	1-pchisq(discoveries.poisson.model.const$deviance-
+					discoveries.poisson.model.quad$deviance,2)
+@
+The test result can be interpreted that the simple model is not adequate and we
+get better model by adding predictors year and year$^2$
+\item Can we say that the mean value of discoveries is constant in time?
+
+Based on the results we can conclude that the mean value of discoveries is not
+constant in time. First the constant model is not adequate (by failing goodness
+of fit test) and the model with additional parameters is better fitted.
+\end{itemize}
+\item Is the larger model well-fitted? Calculate the percent of explained
+deviance and perform a goodness-of-fit test for this model.
+
+Performing goodness of fit for larger model:
+<<>>=
+1-pchisq(discoveries.poisson.model.quad$deviance,length(discoveries)-3)
+@
+We can compare the result to the Pearson $X^2$ statistic:
+<<>>=
+(X_square<-sum((discoveries-discoveries.poisson.model.quad$fitted.values)^2/
+							discoveries.poisson.model.quad$fitted.values))
+1-pchisq(X_square,length(discoveries)-3)	
+@
+Even the larger model is not adequate so it is not well fitted.
+
+Percent of explained deviance:
+<<>>=
+1-discoveries.poisson.model.quad$deviance/discoveries.poisson.model.quad$null.deviance	
+@
+So 19\% of deviance is explained by the model.
+\end{itemize}
+
+\subsection{Exercise 4.} (Log-linear model) File gator.data contais data on
+alligators. We are interested in testing independence of variables lake and food.
+<<>>=
+gator <- read.table(file="gator.data",header=T)	
+@
+\begin{itemize}
+\item Aggregate data to contingency table
+<<>>=
+gator1 <- aggregate(gator$count,list(food=gator$food,lake=gator$lake),FUN=sum)	
+@
+\item We want to test hypothesis $p_{ij} = p_i*p_j$
+<<>>=
+(gator.model <- glm(x~as.factor(food)+as.factor(lake),poisson,gator1))
+1-pchisq(gator.model$deviance,gator.model$df.residual)
+@
+Model does not fit so we cannot say that the variables of lake and food are
+independent.
+
+\item Note that fitted coefficients in this model reflect margin counts in rows
+and columns. To see this calculate the fraction of alligators that come from lake
+1 and calculate the estimated probability that an alligator comes from lake 1. Compare these two numbers. 
+(The expected number of observations in each cell is equal to the observed count.)
+
+<<>>=
+#all alligators
+n<-sum(gator1$x)
+#the fraction of alligators that come from lake 1
+sum(gator1[gator1$lake==1,'x'])/n
+
+#the expected fraction
+(exp(sum(gator.model$coefficients[1]))+
+			exp(sum(gator.model$coefficients[1:2]))+
+			exp(sum(gator.model$coefficients[1:3]))+
+			exp(sum(gator.model$coefficients[1:4]))+
+			exp(sum(gator.model$coefficients[1:5])))/n
+@
+
+\end{itemize}
+
+\end{document}

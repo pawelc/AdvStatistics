@@ -1,0 +1,518 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+
+\usepackage{titlesec}% http://ctan.org/pkg/titlesec
+\titleformat{\section}%
+  [hang]% <shape>
+  {\normalfont\bfseries\Large}% <format>
+  {}% <label>
+  {0pt}% <sep>
+  {}% <before code>
+\renewcommand{\thesection}{}% Remove section references...
+\renewcommand{\thesubsection}{}%... from subsections
+
+\title{Module 8 - Analysis of variance (ANOVA). Analysis of covariance (ANCOVA).}
+\author{Pawel Chilinski}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+\maketitle
+<<echo=F>>=
+setwd("/Users/pawelc/Documents/workspace/AdvStatistics/module8/assignment")	
+@
+
+\subsection{Exercise 1.} (One-way ANOVA) File pszen.txt contains data on harvest
+rates (variable plon) for 32 fields each of which was fertilized with nitrogen in one of four
+doses (factor azot ). Each dose of nitrogen was applied to 8 fields.
+<<>>=
+#load data
+pszen <- read.table(file="pszen.txt",header=T)
+@
+\begin{itemize}
+  \item Check if the assumptions of one-way analysis of variance hold.
+    Assumptions:
+    \begin{itemize}
+      \item Continuously distributed response variable and nominal factor:
+<<>>=
+class(pszen$plon)
+class(pszen$azot)
+@
+      \item  Response variable is normally distributed with a constant variance
+      $\sigma^2$ which does not depend  on the level of the factor.\\
+      
+From the Figure-\ref{BOXPLOT_PLON_AZOT} we see the the variance does not depend
+on the level of the nitrogen. We cannot see either any outliers on boxplots.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+boxplot(plon~azot, pszen,col="blue")
+@
+\caption{Boxplots of plon for differnt levels of azot}
+\label{BOXPLOT_PLON_AZOT}
+\end{center}
+\end{figure}
+We can also perform statistical tests:
+<<>>=
+library(car)
+leveneTest(plon~azot,pszen)	
+bartlett.test(plon~azot, data=pszen)
+fligner.test(plon~azot, data=pszen)
+@
+which conclude our visual findings that we cannot reject assumption about
+homogeneity of variance across groups.
+
+Figure-\ref{HIST_PLON} depicts normally shaped distribution.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+hist(pszen$plon, xlab="plon",main="",col="blue")
+@
+\caption{Histogram of response variable}
+\label{HIST_PLON}
+\end{center}
+\end{figure}
+
+The Figure-\ref{QQ_PLOT_PLON} also confirms the normaliry assumption. 
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+qqnorm(pszen$plon,main="qq plot of plon",)
+qqline(pszen$plon)
+@
+\caption{QQ plot for plon variable}
+\label{QQ_PLOT_PLON}
+\end{center}
+\end{figure}
+
+      \item Balanced samples\\
+We have balanced samples i.e. each level has been assigned the same number of  
+<<>>=
+table(pszen$azot)	
+@
+    \end{itemize}
+  \item Perform analysis of variance to decide whether the mean value of harvest depends on the dose of nitrogen
+used as fertilizer.
+<<>>=
+(plon.azon.lm <- lm(plon~azot,pszen))
+(plon.azon.lm.sum <- summary(lm(plon~azot,pszen)))
+@
+To test  whether the mean value of harvest depends on the dose of nitrogen
+used as fertilizer test: 
+\begin{flalign*}
+& H_0 : \text{azotdawka}_1 = \text{azotdawka}_2 = \text{azotdawka}_3 = \text{azotdawka}_4 \\
+& H_1 : \text{there exists i and j such that } \text{azotdawka}_i \ne \text{azotdawka}_j
+\end{flalign*}
+From the p-value 0.1592 we cannot reject $H_0$ that all means are equal. So we
+cannot say that mean value of harvest depends on the dose of nitrogen
+used as fertilizer provided the data. Looking at the plots we see that there is
+a difference for different means but possibly we need more data to reject null
+hypothesis.
+\end{itemize}
+
+\subsection{Exercise 2.} (Two-way ANOVA) File trucizny.txt  contains data on survival times of 48 rats which were cured after being
+poisoned. 
+<<>>=
+trucizny <- read.table(file="trucizny.txt",header=T)
+@
+The following factors are considered:\\
+trucizna - dose of poison applied: low (A), medium (B), high (C),\\
+kuracja - treatment method (one of four).\\
+For every level of trucizna and kuracja the survival times for four rats chosen
+at random were measured.
+
+\begin{itemize}
+  \item Present the mean values of survival times graphically. Is an interaction
+  visible in the plots?
+  
+There is possibly an interaction on the first plot when lines for A and B cross. However a formal test is needed to
+draw a statistically valid conclusion.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+par(mfrow=c(1,2))
+with(trucizny,interaction.plot(kuracja, trucizna, wyczas))
+with(trucizny,interaction.plot(trucizna,kuracja, wyczas))
+@
+\caption{Profile plots of the mean responses}
+\label{TRUC_INT_PLOT}
+\end{center}
+\end{figure}
+
+  \item Fit two-way ANOVA model and perform appropriate test to decide whether
+  the interaction is present.
+<<>>=
+trucizny.lm <- lm(wyczas~kuracja*trucizna,trucizny)	
+anova(trucizny.lm)
+@
+We conclude that interaction between factors (kuracja and trucizna) is not
+statistically significant.
+  \item Check if the model assumptions hold. In particular analyze residual
+  plot.
+  
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(trucizny.lm, which=1:4)
+@
+\caption{Diagnostic plots for trucizny model with interactions}
+\end{center}
+\end{figure}
+From diagnostics plot it can be seen that model doesn't meet model assumptions:	
+  \begin{itemize}
+    \item variance is not constant
+    
+    We can also check variance per each combination of factors where we see
+    that variance is not constant across groupings:
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+boxplot(wyczas~kuracja+trucizna,trucizny)
+@
+\caption{Distribution of wyczas for each combination of kuracja and trucizna}
+\end{center}
+\end{figure}
+    
+    
+    \item residuals diverge from normal distribution (residuals have
+    leptokurtic distribution)
+  \end{itemize}
+
+\item Propose a new model which fits the data better.
+
+To find new model we can use Box-Cox procedure to find model with the biggest
+likelihood: 
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+library(MASS)
+boxcox(trucizny.lm,plotit=T, lambda=seq(-1.5,0,by=0.1))	
+@
+\caption{Box-Cox procedure to find best model for given data}
+\end{center}
+\end{figure}
+
+We see that model with reciprocal of response variable is contained in 95\%
+interval for model for which data is most probable so using this transformation
+(without interaction because interaction is still nonsignificant):
+<<>>=
+trucizny.transformed.lm <- lm(1/wyczas~kuracja+trucizna,trucizny)	
+anova(trucizny.transformed.lm)
+@
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(trucizny.transformed.lm, which=1:4)
+@
+\caption{Diagnostic plots for transformed trucizny model with interactions}
+\end{center}
+\end{figure}
+Now we can see that normality and homogeneity of variance are adhered.
+The boxplot also depicts the variance which look visually much more homogenous
+than before: 
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+boxplot(1/wyczas~kuracja+trucizna,trucizny)
+@
+\caption{Distribution of 1/wyczas for each combination of kuracja and trucizna}
+\end{center}
+\end{figure}
+
+\item In the new model test the significance of interaction and the presence of
+the main effects of the two factors.
+
+The interaction is not signifficant:
+<<>>=
+trucizny.transformed.interaction.lm <- lm(1/wyczas~kuracja*trucizna,trucizny)	
+anova(trucizny.transformed.interaction.lm)	
+@
+But both main effects are significant:
+<<>>=
+anova(trucizny.transformed.lm)		
+@
+
+\item Interpret the results on the main effects' existence as well as the
+results of multiple comparisons.
+
+From the selected model:
+<<>>=
+trucizny.transformed.lm	
+@
+we can conclude:
+\begin{itemize}
+  \item When truciznaA and  kuracjaI applied then wyczas is
+  $\frac{1}{2.6977}$=\Sexpr{1/2.6977}
+  \item When truciznaA and  kuracjaII applied then wyczas is
+  $\frac{1}{2.6977-1.6574}$=\Sexpr{1/(2.6977-1.6574)}
+  \item When truciznaA and  kuracjaIII applied then wyczas is
+  $\frac{1}{2.6977-0.5721}$=\Sexpr{1/(2.6977-0.5721)}
+  \item When truciznaA and  kuracjaIV applied then wyczas is
+  $\frac{1}{2.6977-1.3583}$=\Sexpr{1/(2.6977-1.3583)}
+  \item When truciznaB and  kuracjaI applied then wyczas is
+  $\frac{1}{2.6977+ 0.4686}$=\Sexpr{1/(2.6977+ 0.4686)}
+  \item When truciznaC and  kuracjaI applied then wyczas is
+  $\frac{1}{2.6977+ 1.9964}$=\Sexpr{1/(2.6977+ 1.9964)}
+\end{itemize}
+
+Using Tukey's HSD test (conclusions at 0.05 level):
+<<>>=
+TukeyHSD(aov(1/wyczas~kuracja+trucizna,trucizny))	
+@
+\begin{itemize}
+  \item The differences between all levels of kuracja are significant but not
+  the one between IV-II.
+  \item The diffrences between all levels of trucizna are significant.
+\end{itemize}
+\end{itemize}
+
+\subsection{Exercise 3.}  (ANCOVA) Data set fuelprices.txt  gives information
+about fuel prices in six Australian cities.
+<<>>=
+fuelprices <- read.table(file="fuelprices.txt",header=T)	
+@
+\begin{itemize}
+  \item  Fit one-way ANOVA model taking price  as an output variable and city 
+  as a factor to check whether there are any diffrences in fuel prices between
+  the given cities.
+<<>>=
+fuelprices.price.vs.city.lm <- lm(price ~ city, fuelprices)	
+summary(fuelprices.price.vs.city.lm)
+@
+We see that the differences in fuel prices between cities are not significant.
+
+\item  Analyze all the diagnostics for the fitted model. What can we say about
+the dispersion of observations in each group and what may this imply?
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+boxplot(price ~ city, fuelprices,col="blue")
+@
+\caption{Boxplots of price for differnt cities}
+\label{BOXPLOT_PLON_AZOT}
+\end{center}
+\end{figure}
+We see that dispersion for Gold.Coast differs noticably from the rest. We can
+also notice the for all groups IQR overlap which can mean that the means do not
+differ significantly. The data is also skewed (for some groups quite visibly).
+
+Using statistical tests to check homogeneity of variance:
+<<>>=
+leveneTest(price ~ city,fuelprices)	
+bartlett.test(price ~ city, data=fuelprices)
+fligner.test(price ~ city, data=fuelprices)
+@
+Statistical tests lack power to reject hypothesis about homogeneity if variance.
+
+We see that the QQ plot of residuals doesn't resemble normal distribution.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(fuelprices.price.vs.city.lm, which=1:4)
+@
+\caption{Diagnostic plots for model price $\sim$ city}
+\end{center}
+\end{figure}
+
+\item The data was collected within couple of months. Make a plot of the price 
+against variable month  for every city. What can we say about the dispersion of the data now?
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,3))
+for(c in as.character(unique(fuelprices$city))){
+	with(fuelprices[fuelprices$city==c,],plot(month,price,main=c))
+}
+@
+\caption{Price against variable month  for every city}
+\label{PRICE_MONTH}
+\end{center}
+\end{figure}
+The price of the fuel depends not only on city but also on time (it increases
+with time). We see the price $\sim$ time relation is similar for all cities but
+not for Gold.Coast for which it looks quadratic and not linear.
+
+\item Fit ANCOVA model taking month  as a continuous predictor.
+<<>>=
+(fuelprices.price.vs.city.month.lm <- lm(price ~ city*month, fuelprices))
+@
+
+\item  Is the interaction between two predictors significant in this model?
+<<>>=
+summary(fuelprices.price.vs.city.month.lm)	
+@
+The interaction between two predictors is significant (Gold.Coast has
+different slope for month than reference city Brisbane).
+
+\item  Analyze diagnostic plots for this model.
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(fuelprices.price.vs.city.month.lm, which=1:4,labels.id=fuelprices$city)
+@
+\caption{Diagnostic plots for price $\sim$ city*month model}
+\end{center}
+\end{figure}
+We see that variance doesn'r seem contant, the residual plot show divergence
+from notmality and wee see some potential influential obeservations with Cook's
+distance greater than 1.
+We see (observer eatlier) that Gold.Coast doesn't fit into the model.
+
+\item  Does the assumption of linear dependence between price and month hold
+for every city? If not, exclude the respective city from the analysis and refit
+ANCOVA model.
+
+We have seen on Figure-\ref{PRICE_MONTH} that price $\sim$ month shows quadratic
+dependence for Gold.Coast city (other cities show linear relationship). Removing
+this city from data and refitting the model:
+<<>>=
+fuelprices <- fuelprices[fuelprices$city!="Gold.Coast",]
+(fuelprices.price.vs.city.month.lm <- lm(price ~ city*month, fuelprices))
+@
+
+\item  Analyze the fit of the resulting model (check diagnostics). If possible
+simplify the model.\\
+
+Now the interaction term is insignificant:
+<<>>=
+summary(fuelprices.price.vs.city.month.lm)	
+@
+So we simplify the model to model without interaction term (now we see
+significant diffrences between means):
+<<>>=
+fuelprices.price.vs.city.month.lm <- lm(price ~ city+month, fuelprices)
+summary(fuelprices.price.vs.city.month.lm)	
+@
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(fuelprices.price.vs.city.month.lm, which=1:4,labels.id=fuelprices$city)
+@
+\caption{Diagnostic plots for price $\sim$ city+month model without Gold.Coast
+city}
+\end{center}
+\end{figure}
+This model meets model assumptions much better than previous one.
+
+\item  Draw and interpret the fitted lines. Which city is the cheapest and which
+is the most expensive with respect to fuel prices? How much the prices grow per month? Compare the results with the initial ANOVA model.
+
+All the lines have the same slope but different cooeficients. The most expensive
+city is Cairns (the biggest mean which differs from the refernce city Brisbane
+significantly). The Brisbane, Sunshine.Coast, Townsville mean prices does not
+differ significantly from each other so they are the cheapest cities. We see
+that Toowoomba is more expensive than Brisbane but we from this model we cannot
+compare Toowoomba and Cairns (to compare them we would have to fit model with
+reference city set to one of them).
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+with(fuelprices,plot(month,price,col=rep(c(1,2,3,4,5),each=6),pch=20)) 
+legend("topleft", legend=unique(fuelprices$city), col = c(1,2,3,4,5), lty = 0,pch=rep(20,5))
+abline(fuelprices.price.vs.city.month.lm$coefficients["(Intercept)"]+fuelprices.price.vs.city.month.lm$coefficients["citySunshine.Coast"],
+		fuelprices.price.vs.city.month.lm$coefficients["month"],col=1)
+abline(fuelprices.price.vs.city.month.lm$coefficients["(Intercept)"]+fuelprices.price.vs.city.month.lm$coefficients["cityToowoomba"],
+		fuelprices.price.vs.city.month.lm$coefficients["month"],col=2)
+abline(fuelprices.price.vs.city.month.lm$coefficients["(Intercept)"]+fuelprices.price.vs.city.month.lm$coefficients["cityTownsville"],
+		fuelprices.price.vs.city.month.lm$coefficients["month"],col=3)
+abline(fuelprices.price.vs.city.month.lm$coefficients["(Intercept)"],fuelprices.price.vs.city.month.lm$coefficients["month"],col=4)
+abline(fuelprices.price.vs.city.month.lm$coefficients["(Intercept)"]+fuelprices.price.vs.city.month.lm$coefficients["cityCairns"],
+		fuelprices.price.vs.city.month.lm$coefficients["month"],col=5)
+@
+\caption{Fitted lines for cities}
+\end{center}
+\end{figure}
+
+\end{itemize}
+
+\subsection{Exercise 4.}  (ANCOVA) The le twins.txt  contains data collected
+during the study aiming to examine whether intelligence is inherent or rather
+dependent on education.
+<<>>=
+twins <- read.table(file="twins.txt",header=T)
+@
+ Level of IQ was measured for monozygotic twins one of which was raised by
+foster parents. The data includes the following variables:\\
+FosterIQ - IQ level for the twin raised by foster parents,\\
+BiolIQ - IQ level of the twin raised by biological parents,\\
+Social - social status of biological parents.\\
+We are interested in examining the dependence between variables FosterIQ and BiolIQ including the social
+status of biological parents.
+
+\begin{itemize}
+  \item  Plot variable FosterIQ  against BiolIQ  and mark the social status for
+  each observation.
+ 
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+with(twins,plot(BiolIQ,FosterIQ,col=as.integer(Social)),pch=20)
+with(twins,legend("topleft", legend=levels(Social), col=unique(as.integer(Social)),lty = 0,pch=rep(20,nlevels(Social))))
+@
+\caption{FosterIQ  against BiolIQ with marked the social status for
+  each observation}
+\end{center}
+\end{figure}
+
+\item Fit ANCOVA model with interactions and simplify it if possible.\\
+
+We can see that interaction is not significant in the model:
+<<>>=
+twins.interaction.lm <- lm(FosterIQ~BiolIQ*Social,twins)
+summary(twins.interaction.lm)
+@
+
+So simplifying it to the model without interaction:
+<<>>=
+twins.lm <- lm(FosterIQ~BiolIQ+Social,twins)
+summary(twins.lm)
+@
+
+\item Analyse diagnostics for the model.
+
+We see that model fulfills assumptions i.e. contant variance, normal
+distribution of residuals, no influential values, no outliers. 
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7,echo=F>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(twins.lm, which=1:4)
+@
+\caption{Diagnostic plots for twins model without interactions}
+\end{center}
+\end{figure}
+
+\item Interpret the results.
+Base on the model:
+<<>>=
+summary(twins.lm)
+@
+we can conclude:
+\begin{itemize}
+  \item there is linear dependence between FosterIQ and BiolIQ with slope 0.9658
+  which is significant (i.e. 1 additional IQ for BiolIQ gives 1 additional IQ
+  for FosterIQ for one of the twins)
+  \item the slope doesn't differ across social classes.
+  \item there is no significant difference between means among
+  social classes.
+\end{itemize}
+  
+\end{itemize}
+
+\end{document}

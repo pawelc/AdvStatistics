@@ -1,0 +1,595 @@
+% 
+\RequirePackage{amsmath}
+\documentclass[a4paper]{article}
+\usepackage{Sweave}
+\usepackage[margin=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage[usenames,dvipsnames]{color}
+
+\usepackage{titlesec}% http://ctan.org/pkg/titlesec
+\titleformat{\section}%
+  [hang]% <shape>
+  {\normalfont\bfseries\Large}% <format>
+  {}% <label>
+  {0pt}% <sep>
+  {}% <before code>
+\renewcommand{\thesection}{}% Remove section references...
+\renewcommand{\thesubsection}{}%... from subsections
+
+\title{Module 4 - Diagnostics of multiple regression model}
+\author{Pawel Chilinski}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+\maketitle
+\subsection{Exercise 1.} Create a vector x of n equally distributed numbers on
+interval [0, 1]. Generate random numbers $Y_i=2+15x_i+\epsilon_i$, $i=1,...,n$.
+where $\epsilon_i\sim N(0,2)$ - iid. Fit a linear regression model to the data $(x_i,Y_i)_{i=1}^n$.
+\\
+
+Function to generate data, residual plots and qq-plots for given n:
+<<>>=
+generate.data<-function(n,errors=function(n){rnorm(n, 0, sqrt(2))},y_fun=function(X,E){2 + 15*X + E}){
+	X <- seq(from=0,to=1,length.out=n)
+	E <- errors(n)
+	Y <- y_fun(X,E)
+	model <- lm(Y~X)
+	return(list(n=n,X=X,E=E,Y=Y,model=model))
+}
+residual.plots<-function(data){
+	par(mfrow=c(1,3))
+	for(d in data){
+		plot(d$model$fitted,resid(d$model),xlab="fitted",ylab="residuals",main=paste("For",d$n))
+		abline(h=0,lwd=0.5)
+	}
+	par(mfrow=c(1,1))
+}
+qq.plots<-function(data){
+	par(mfrow=c(1,3))
+	for(d in data){
+		qqnorm(resid(d$model))
+		qqline(resid(d$model))
+	}
+	par(mfrow=c(1,1))
+}
+@
+\begin{itemize}
+\item Make residual plots for n = 30, 100, 300.
+  
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+data<-lapply(c(30,100,300),generate.data)
+residual.plots(data)
+@
+\caption{Residual plots for n=30, 100, 300.}
+\end{center}
+\end{figure}
+
+\item Make normal QQ plots for n = 30, 100, 300.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+qq.plots(data)
+@
+\caption{Normal QQ plots for n = 30, 100, 300}
+\end{center}
+\end{figure}
+
+\item Generate new $(Y_i)_{i=1}^n$ changing the distribution of errors to
+centered gamma with parameters 2 and 2.Make residual and QQ plots for n = 30,
+100, 300.
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+data<-lapply(c(30,100,300),generate.data,errors=function(n){rgamma(n,2,2)})
+residual.plots(data)
+@
+\caption{Residual plots for n=30, 100, 300.}
+\end{center}
+\end{figure}
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+qq.plots(data)
+@
+\caption{Normal QQ plots for n = 30, 100, 300}
+\end{center}
+\end{figure}
+
+\item Generate new $(Y_i)_{i=1}^n$ changing the distribution of errors to Cauchy
+with parameters 0 and 1. Make residual and QQ plots for n = 30, 100, 300.
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+data<-lapply(c(30,100,300),generate.data,errors=function(n){rcauchy(n,0,1)})
+residual.plots(data)
+@
+\caption{Residual plots for n=30, 100, 300.}
+\end{center}
+\end{figure}
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+qq.plots(data)
+@
+\caption{Normal QQ plots for n = 30, 100, 300}
+\end{center}
+\end{figure}
+
+\item Generate new $(Y_i)_{i=1}^n$ where $Y_i=2+15x_i^2+\epsilon_i$ and
+$\epsilon_i\sim N(0,2)$. Make residual and QQ plots for n = 30, 100, 300.
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+data<-lapply(c(30,100,300),generate.data,y_fun=function(X,E){2 + 15*X^2 + E})
+residual.plots(data)
+@
+\caption{Residual plots for n=30, 100, 300.}
+\end{center}
+\end{figure}
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+qq.plots(data)
+@
+\caption{Normal QQ plots for n = 30, 100, 300}
+\end{center}
+\end{figure}
+\end{itemize}
+
+When our simulated errors are normal and structural equation is correct we
+cannot see any anomalies on residual and qq plots. But after changing
+distribution of errors to gamma(right skewness) and Cauchy (fat tails) we can
+see changes in the residual and qq plots. After changing equation generating
+data to quadratic formula we can see the quadratic pattern emerging from the
+residual plots.
+
+\subsection{Exercise 2.} Load data trees.
+\begin{itemize}
+\item Fit simple linear regression models to two pairs of variables
+Volume$\sim$Girth and Volume $\sim$ Height.
+<<>>=
+vol_girth.model <- lm(Volume~Girth,trees)
+vol_height.model <- lm(Volume~Height,trees)
+@
+
+\item For the both considered models analyse residual plots:
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+par(mfrow=c(1,2))
+plot(resid(vol_girth.model),xlab="i",ylab="residuals",main="Volume~Girth")
+abline(h=0,lwd=0.5)
+plot(resid(vol_height.model),xlab="i",ylab="residuals",main="Volume~Height")
+abline(h=0,lwd=0.5)
+par(mfrow=c(1,1))	
+@
+\caption{Residuals versus index ${(i,e_i)}_{i=1}^n$}
+\end{center}
+\end{figure}
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+par(mfrow=c(1,2))
+plot(vol_girth.model$model$Girth,resid(vol_girth.model),xlab="Girth",ylab="residuals",
+		main="Volume~Girth")
+abline(h=0,lwd=0.5)
+plot(vol_height.model$model$Height,resid(vol_height.model),xlab="Height",ylab="residuals",
+		main="Volume~Height")
+abline(h=0,lwd=0.5)
+par(mfrow=c(1,1))	
+@
+\caption{Residuals versus explanatory variable ${(x_i,e_i)}_{i=1}^n$}
+\end{center}
+\end{figure}
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+par(mfrow=c(1,2))
+plot(vol_girth.model$fitted,resid(vol_girth.model),xlab="Fitted volume",ylab="residuals",
+		main="Volume~Girth")
+abline(h=0,lwd=0.5)
+plot(vol_height.model$fitted,resid(vol_height.model),xlab="Fitted volume",ylab="residuals",
+		main="Volume~Height")
+abline(h=0,lwd=0.5)
+par(mfrow=c(1,1))	
+@
+\caption{Residuals versus predicted values ${(\hat{Y}_i,e_i)}_{i=1}^n$}
+\end{center}
+\end{figure}
+
+\item On the basis of residual plots propose a nonlinear model describing
+relationship between variables Volume and Girth. Fit the new model and compare it with the linear model. In particular compare the estimated variances of volume
+($\sigma^2$)
+\\
+
+From the residual plot residuals versus explanatory variable we can see the
+quadratic dependence of residual from the explanatory variable. So new model:
+<<>>=
+vol_girth_quad.model <- lm(Volume~Girth+I(Girth*Girth),trees)	
+@
+On residual plot for a new model we can see that quadratic dependence of
+residuals on Girth has disappeared:  
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=7>>=
+par(mfrow=c(1,2))
+plot(vol_girth_quad.model$model$Girth,resid(vol_girth_quad.model),xlab="Girth",ylab="residuals",
+		main="Volume~Girth+I(Girth*Girth)")
+abline(h=0,lwd=0.5)
+par(mfrow=c(1,1))	
+@
+\caption{Residuals versus explanatory variable ${(x_i,e_i)}_{i=1}^n$ for
+quadratic model}
+\end{center}
+\end{figure}
+Comparing two models we can see that $R^2$ for the quadratic model is bigger,
+estimated variances of volume is smaller in case of complex model (Residual
+standard error squared) and RSS is significantly smaller for complex model:
+<<>>=
+summary(vol_girth.model)
+summary(vol_girth_quad.model)
+anova(vol_girth.model,vol_girth_quad.model)
+@
+\end{itemize}
+\subsection{Exercise 3.} File realest.txt contains data related to houses in
+Chicago. Fit a linear regression model taking price of house as a response
+variable and the rest of variables in the data set as explanatory variables.
+<<>>=
+realest.data <- read.table(file="realest.txt",header=T)
+price_all.model <- lm(Price~.,realest.data)	
+@
+
+\begin{itemize}
+\item Analyse diagnostic plots of the model. Use function plot(m, which=1:4)
+where m is the fitted model returned by function lm() to obtain residual plot, QQ-plot and other diagnostic plots.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(price_all.model, which=1:4)
+par(op)
+@
+\caption{Diagnostic plots for Price$\sim .$}
+\end{center}
+\end{figure}
+
+\begin{itemize}
+  \item Residuals vs Fitted - There is a pattern of decreasing variance of
+  errors with increase in fitted value. It looks like residuals are negatively skewed.
+  \item Scale-Location - There is a little bit if upward trend which isn't good
+  news for error normal assumption.
+  \item Normal Q-Q - there are two modes in the residuals.
+  \item Cook's distance - shows that three observations i.e. 6th, 8th and 11th
+  are influential and should be examined for correctness.
+\end{itemize}
+  
+\item Are there any outliers in the data?
+\\
+
+To find outliers I use heuristic rule that observations with absolute
+value studentized residual $\geq$ 2 are good candidates for outliers:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+library(MASS)
+price_all.model.studres <- studres(price_all.model)
+plot(price_all.model.studres,ylab="studentized residual",xlab="i")
+outliers <- which(abs(price_all.model.studres)>=2)
+points(outliers, price_all.model.studres[outliers],col="red",pch=16)
+text(outliers+1,price_all.model.studres[outliers],labels=outliers)
+legend(x="topleft",legend=c("outlier"),pch=c(16),col=c("red"))
+@
+\caption{Outliers}
+\end{center}
+\end{figure}
+
+\item Identify influence observations in the data (use Cook's distance and
+hatvalues, functions: cooks.distance() and hatvalues()).
+\\
+
+Using heuristic rule that observation is potentially influential if $h_{ii}\geq
+\frac{2p}{n}$ we can identify them:
+<<>>=
+as.vector(which(hatvalues(price_all.model)>= length(price_all.model$coefficients)/nrow(realest.data)))
+@
+Observations 6, 8 and 11 are also pointed out by the Cook's distance plot.\\
+Only 8th observation has Cook's distance greater than 1 so can be qualified as
+influential:
+<<>>=
+as.vector(which(cooks.distance(price_all.model)>1))
+@
+\\
+
+So we can see that 8 is influential and outlier. The 20th and 16th observations
+are outliers but are not influential.
+\end{itemize}
+
+\subsection{Exercise 4.} File activity.txt contains data describing effectiveness of work done during 1 hour (variable Y) and two possibly
+related to it variables (X1 and X2).
+<<>>=
+activity.data <- read.table(file="activity.txt",header=T)
+@
+\begin{itemize}
+\item Fit a linear regression model for variable Y versus X1 and X2.
+<<>>=
+activity.model <- lm(Y~.,activity.data)	
+summary(activity.model)
+@
+\item Assess the diagnosis plots for the fitted model.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(activity.model, which=1:4)
+par(op)
+@
+\caption{Diagnostic plots for Y$\sim .$}
+\end{center}
+\end{figure}
+There is visible zigzag pattern for residuals. None of the observations has
+Cook's distance greater than 1 so there are no candidates for influential
+variables. The qqplot shows divergence from the normality but we have too few
+observations to conclude.
+
+\item Make partial regression plots and partial residual plots for both
+explanatory variables (use function prplot() in a library named faraway).
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=7>>=
+library(car)
+op <- par(mfrow=c(1,2),mar = par("mar")/2)
+avPlots(activity.model)
+par(op)
+@
+\caption{Partial regression plots}
+\end{center}
+\end{figure}
+We can see linear dependence and no visible outliers and influential
+observations for each predictor variables taking into consideration another
+predictor. 
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=7>>=
+library(faraway)
+op <- par(mfrow=c(1,2),mar = par("mar")/2)
+prplot(activity.model,1)
+prplot(activity.model,2)
+par(op)
+@
+\caption{Partial residual plots}
+\end{center}
+\end{figure}
+We can also use prettier plots from the car package:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=7>>=
+crPlots(activity.model)
+@
+\caption{Component+Residual plots}
+\end{center}
+\end{figure}
+We can can see that there could be discerned 2 groups in the data plots (2 for
+X1 and 2 for X2). So possibly we should create separate models for these 2
+groups. Also we could notice that $X_1$ variable shows positive concave pattern. 
+\item Propose a transformation of variable X1 on the basis of these plots.
+Compare values of R2 in the initial and proposed models.
+Because on the partial residual plot we can see positive concave relationship
+between remaining information in Y without predicted part from $X_2$ on $X_1$
+variable we can try $log(X_1)$ transformation:
+<<>>=
+activity_transformed.model <- lm(Y~log(X1)+X2,activity.data)
+
+summary(activity.model)$r.squared
+summary(activity_transformed.model)$r.squared
+@
+which has better $R^2$.
+\end{itemize}
+\subsection{Exercise 5.} File strongx.txt contains results of an experiment in
+particle physics. Variables in the data set are:\\
+crossx - cross-section of a particle,\\
+energy - an inverse of an energy of a particle,\\
+momentum - momentum of a particle,\\
+sd - estimated standard deviation of crossx for a given value of momentum.\\
+For each value of momentum an experiment was performed repeatedly. Thus an
+estimator of standard deviation of cross-section could be calculated for each
+value of momentum.\\
+It is expected that cross-section should be a linear function of the inverse of
+energy of a particle.
+<<>>=
+strongx.data <- read.table(file="strongx.txt",header=T)	
+@
+\begin{itemize}
+\item Fit a regression line describing dependence $crossx\sim energy$ using the least squares method.
+<<>>=
+strongx.ls.model <- lm(crossx~energy, strongx.data)
+summary(strongx.ls.model)
+@
+Diagnostic plots:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(strongx.ls.model, which=1:4)
+par(op)
+@
+\caption{Diagnostic plots for LSM}
+\end{center}
+\end{figure}
+Regression line and data points:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=7>>=
+plot(strongx.data$energy,strongx.data$crossx, xlab="energy",ylab="crossx",main="crossx~energy")
+abline(strongx.ls.model,col="blue")
+legend(x="topleft",col=c("black","blue"),pch=c(1,NA),legend=c("data","fitted line"),lty=c(0,1))
+@
+\caption{Data and fitted model}
+\end{center}
+\end{figure}
+\item Fit a regression line describing dependence $crossx\sim energy$ using the
+weighted least squares method (use parameter weights in function lm() and set it to $sd^{-2}$).
+<<>>=
+strongx.wls.model <- lm(crossx~energy, strongx.data,weights=strongx.data$sd^-2)	
+summary(strongx.wls.model)
+@
+Diagnostic plots:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(strongx.wls.model, which=1:4)
+par(op)
+@
+\caption{Diagnostic plots for WLSM}
+\end{center}
+\end{figure}
+\item Compare the two fitted models. Why is WLS line better fitted to
+observations having low energy of a particle?
+
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=5>>=
+op <- par(mar = par("mar")/2)
+plot(strongx.data$energy,strongx.data$sd,xlab="energy",ylab="sd")
+par(op)
+@
+\caption{sd vs energy}
+\end{center}
+\end{figure}
+We can see that for smaller values of energy the sd is smaller. The WLSM weights
+the squared errors by $sd^{-2}$ giving this way more importance to observations
+with smaller sd. That's why smaller energy values' residuals are smaller in WLSM
+compared to LSM:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=3,width=5>>=
+plot(strongx.data$energy,resid(strongx.ls.model),xlab="energy",ylab="residuals",type="l",col="blue")
+lines(strongx.data$energy,resid(strongx.wls.model),col="red")
+legend(x="top",col=c("blue","red"),pch=c(NA,NA),legend=c("LSM","WLSM"),lty=c(1,1))
+abline(h=0,lwd=0.5)
+@
+\caption{Residuals for LSM and WLSM}
+\end{center}
+\end{figure}
+\item On the basis of diagnostic plots for the WLS line propose a modification
+of this model.
+Because $Var(strongx|energy)$ is proportional to $E(strongx|energy)^2$ then we
+can apply transformation of $log(crossx)$. 
+<<>>=
+strongx.transformed.model <- lm(log(crossx)~energy, strongx.data,weights=strongx.data$sd^-2)	
+summary(strongx.transformed.model)
+@
+On the diagnostic plots we can see that residuals decreased considerably:
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=5,width=7>>=
+op <- par(mfrow=c(2,2),mar = par("mar")/2)
+plot(strongx.transformed.model, which=1:4)
+par(op)
+@
+\caption{Diagnostic plots for transformed model}
+\end{center}
+\end{figure}
+
+\item Draw the fitted curve on the data scatterplot.
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=4,width=7>>=
+plot(strongx.data$energy,strongx.data$crossx, xlab="energy",ylab="crossx",main="log(crossx)~energy")
+abline(strongx.ls.model,col="blue")
+curve(exp(strongx.transformed.model$coefficients[1]+strongx.transformed.model$coefficients[2]*x),col="green",min(strongx.data$energy),max(strongx.data$energy),add=T)
+legend(x="topleft",col=c("black","blue","green"),pch=c(1,NA,NA),legend=c("data","crossx~energy","log(crossx)~energy"),lty=c(0,1,1))
+@
+\caption{Data and fitted transformed model}
+\end{center}
+\end{figure}
+\end{itemize}
+\subsection{Exercise 6.} File uscrime.txt the following data related to 47
+states of USA:
+R - crime rate,\\
+S - =1 (southern states), = 0 (other),\\
+Age - number of men aged 14-24 among 1000 citizens,\\
+Ex0, Ex1 - Police expenses in years 1960 and 1959, respectively,\\
+LF - rate of persons aged 14-24 among all employees,\\
+W - welfare rate,\\
+M - number of men corresponding to every 1000 of women,\\
+N - population of a state (in hundreds of thousands),\\
+NW - number of not-white persons corresponding to every 1000 of citizens,\\
+U1, U2 - unemployment rate among men aged 14-24 and 35-39, respectively,\\
+X - unequality of income rate (number of families among 100 whose income is
+lower than half of median of all families income).\\
+<<>>=
+uscrime.data <- read.table(file="uscrime.txt",header=T)
+@
+\begin{itemize}
+\item Fit a linear regression model taking crime rate as a response variable and
+all the other variables in the set as predictors.
+<<>>=
+uscrime.model <- lm(R~.,uscrime.data)
+summary(uscrime.model,corr=T)
+@
+\item Check the data set for collinearity of predictors:
+\begin{itemize}
+\item make scatterplots for all pairs of predictors (use function pairs())
+We can see the there is strong linear relationship between:
+\begin{itemize}
+\item Ex0 and Ex1
+\item U1 and U2
+\item W and X
+\end{itemize}
+\begin{figure}[H]
+\begin{center}
+<<fig=TRUE,height=15,width=15>>=
+op <- par(mar = c(0,0,0,0))
+pairs(uscrime.data[2:ncol(uscrime.data)])
+par(op)
+@
+\caption{uscrime scatterplots for all pairs of predictors}
+\end{center}
+\end{figure}
+\item calculate correlations between them
+<<>>=
+(uscrime.cor <- cor(uscrime.data[2:ncol(uscrime.data)]))
+@
+We can find pairs with cor $\geq 0.7$:
+<<>>=
+as.vector(apply(which(uscrime.cor>=0.7 & upper.tri(uscrime.cor),arr.ind=T),1,
+				function(pair){paste(colnames(uscrime.cor)[pair[1]],colnames(uscrime.cor)[pair[2]])}))
+@
+\item calculate variance inflation factors for every predictor
+<<>>=
+library(car)
+vif(uscrime.model)
+@
+\end{itemize}
+\item Choose the strongest correlated pair of predictors and remove one of them
+from the model. Compare the new model with the initial one. How does
+collinearity of predictors affect a model?\\ 
+We can see that the strongest correlation and the biggest VIF comes from Ex0 and
+Ex1. After removing Ex1 (the biggest VIF):
+<<>>=
+uscrime_no_ex1.model <- lm(R~.,uscrime.data[,!colnames(uscrime.data) %in% c("Ex1")])
+summary(uscrime_no_ex1.model)	
+vif(uscrime_no_ex1.model)
+@
+Now we can see that all VIFs are smaller that 10 and there is one more
+significant coefficient i.e. Ex0 (the one that was strongly correlated with
+removed Ex1).
+The standard errors of cooeficients are larger for model with collinear
+predictors because of not stable solution of regression equation. We can also
+see the positive correlation between predictors Ex0 and Ex1 is mirrored by high
+negative corelation between their correnponding coefficients. 
+\end{itemize}
+\end{document}
